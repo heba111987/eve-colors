@@ -1,12 +1,7 @@
 import { items } from '@wix/data';
-import * as siteLocation from '@wix/site-location';
 import * as siteMembers from '@wix/site-members';
 import { window as wixWindow } from '@wix/site-window';
 import styles from './my-eve-garden.module.css';
-import {
-  hasFoundingMemberAccess,
-  purchaseFoundingMemberAccess,
-} from './founding-member';
 import {
   EVE_PROMPTS,
   escapeHtml,
@@ -101,23 +96,6 @@ class EveGardenElement extends HTMLElement {
 
   private async loadMemberGarden(): Promise<void> {
     this.renderLoading();
-    let hasAccess: boolean;
-    try {
-      hasAccess = await withTimeout(
-        hasFoundingMemberAccess(),
-        'Founding Member access check',
-      );
-    } catch (error) {
-      console.error('Failed to verify Eve Garden plan access:', error);
-      this.renderLoadError('You are signed in, but we could not verify your Garden access. Please try again.');
-      return;
-    }
-
-    if (!hasAccess) {
-      this.renderFoundingMemberOffer();
-      return;
-    }
-
     try {
       const result = await withTimeout(
         items.query(COLLECTION_ID)
@@ -178,53 +156,6 @@ class EveGardenElement extends HTMLElement {
       actionCompleted: true,
       flower: `${prompt.color} Eve Flower`,
     })));
-  }
-
-  private renderFoundingMemberOffer(): void {
-    this.innerHTML = `
-      <section class="${styles.root} founding-member-view" aria-labelledby="founding-member-title">
-        <div class="founding-member-card">
-          <p class="eyebrow">One-time founding offer</p>
-          <h2 id="founding-member-title">Let your whole garden bloom.</h2>
-          <p class="founding-member-price"><strong>$4.99</strong><span>one time</span></p>
-          <p>Become a Founding Member to revisit every reflection you save and see your complete Flower Garden grow over time.</p>
-          <ul>
-            <li>Your saved reflection history</li>
-            <li>Your complete Flower Garden</li>
-            <li>Connected securely to your Wix member account</li>
-          </ul>
-          <p class="founding-member-free-note">Your daily prompt and basic flower reward always remain free.</p>
-          <button class="primary-action" type="button" data-unlock>Unlock Founding Member Access</button>
-          <button class="text-action" type="button" data-return>Return to Today’s Color</button>
-          <p class="purchase-status" role="status"></p>
-        </div>
-      </section>
-    `;
-
-    this.querySelector<HTMLButtonElement>('[data-unlock]')?.addEventListener('click', () => {
-      void this.purchaseAccess();
-    });
-    this.querySelector<HTMLButtonElement>('[data-return]')?.addEventListener('click', () => {
-      void siteLocation.location.to('/');
-    });
-  }
-
-  private async purchaseAccess(): Promise<void> {
-    const unlockButton = this.querySelector<HTMLButtonElement>('[data-unlock]');
-    const status = this.querySelector<HTMLElement>('.purchase-status');
-    if (!unlockButton) return;
-
-    unlockButton.disabled = true;
-    if (status) status.textContent = 'Opening secure checkout…';
-    try {
-      await purchaseFoundingMemberAccess();
-      if (status) status.textContent = 'Purchase complete. Opening your garden…';
-      await this.render();
-    } catch (error) {
-      console.error('Founding Member purchase did not complete:', error);
-      if (status) status.textContent = 'Your purchase was not completed. You can try again whenever you’re ready.';
-      unlockButton.disabled = false;
-    }
   }
 
   private renderGarden(entries: readonly GardenEntry[]): void {
