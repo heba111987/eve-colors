@@ -7,6 +7,7 @@
     "dev:web": "npm run dev --workspace=web",
     "build:web": "npm run build --workspace=web",
     "test": "npm run test --workspace=worker && npm run test --workspace=shared",
+    "typecheck": "npm run typecheck --workspace=worker && npm run typecheck --workspace=shared && npm run typecheck --workspace=web",
     "db:migrate:local": "npm run db:migrate:local --workspace=worker",
     "db:migrate:remote": "npm run db:migrate:remote --workspace=worker",
     "deploy:worker": "npm run deploy --workspace=worker",

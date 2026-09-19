@@ -60,6 +60,7 @@ async function loadOwnedEntry(db: D1Database, userId: string, entryId: string): 
 entryRoutes.patch('/:id', requireAuth, async (c) => {
   const user = c.get('user');
   const entryId = c.req.param('id');
+  if (!entryId) return c.json({ error: 'not_found' }, 404);
   const entry = await loadOwnedEntry(c.env.DB, user.id, entryId);
   if (!entry) return c.json({ error: 'not_found' }, 404);
 
@@ -91,6 +92,7 @@ entryRoutes.patch('/:id', requireAuth, async (c) => {
 entryRoutes.post('/:id/reroll-task', requireAuth, async (c) => {
   const user = c.get('user');
   const entryId = c.req.param('id');
+  if (!entryId) return c.json({ error: 'not_found' }, 404);
   const entry = await loadOwnedEntry(c.env.DB, user.id, entryId);
   if (!entry) return c.json({ error: 'not_found' }, 404);
   if (entry.task_completed) return c.json({ error: 'task_already_completed' }, 409);

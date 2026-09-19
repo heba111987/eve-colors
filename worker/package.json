@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "db:migrate:local": "wrangler d1 migrations apply eve-colors --local",
     "db:migrate:remote": "wrangler d1 migrations apply eve-colors --remote",
     "deploy": "wrangler deploy"
