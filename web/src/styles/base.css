@@ -1,0 +1,52 @@
+body {
+  font-family: system-ui, sans-serif;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  color: #222;
+}
+button {
+  font: inherit;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid #444;
+  background: #fff;
+  cursor: pointer;
+}
+button.primary {
+  background: #222;
+  color: #fff;
+}
+textarea,
+input[type='text'] {
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+}
+.color-swatch {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 88px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.color-swatch .dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: block;
+}
+.notice {
+  margin-top: 24px;
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #555;
+}
