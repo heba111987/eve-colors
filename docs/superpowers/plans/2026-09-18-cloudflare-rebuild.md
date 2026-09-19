@@ -2100,6 +2100,14 @@ async function createTodayEntry(app: Hono<AuthedBindings>, cookie: string): Prom
 }
 
 describe('PATCH /api/entries/:id (answer)', () => {
+  beforeEach(async () => {
+    // Clear seed tasks so pickTask deterministically selects the one task this
+    // test seeds (mirrors the pattern already established for questions in
+    // Tasks 8 and 10 — pickTask otherwise picks randomly among the 33 seeded
+    // production tasks too, making the task.id assertion below flaky).
+    await env.DB.prepare('DELETE FROM tasks WHERE id LIKE ?').bind('t-%').run();
+  });
+
   it('saves the answer and assigns a task', async () => {
     await seedQuestion('q1');
     await env.DB
