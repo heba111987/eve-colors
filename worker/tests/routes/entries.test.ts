@@ -12,11 +12,17 @@ function buildApp() {
   return app;
 }
 
-async function seedSignedInUser(id: string) {
+// Seeds a user who has accepted the required wellness/terms consent — the
+// state any real user of these routes is in, since requireConsent now blocks
+// the entry routes for anyone who hasn't. See the consent tests at the bottom
+// of this file for the not-yet-consented case.
+async function seedSignedInUser(id: string, consentAcceptedAt: string | null = new Date().toISOString()) {
   const now = new Date().toISOString();
   await env.DB
-    .prepare(`INSERT INTO users (id, google_sub, email, created_at, last_login_at) VALUES (?, ?, ?, ?, ?)`)
-    .bind(id, `sub-${id}`, `${id}@example.com`, now, now)
+    .prepare(
+      `INSERT INTO users (id, google_sub, email, consent_accepted_at, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, `sub-${id}`, `${id}@example.com`, consentAcceptedAt, now, now)
     .run();
   const session = await createSession(env.DB, id);
   return sessionCookie(session.id, 'localhost', session.expiresAt).split(';')[0];
@@ -348,5 +354,65 @@ describe('DELETE /api/entries/:id', () => {
     expect(res.status).toBe(404);
     const row = await env.DB.prepare('SELECT id FROM entries WHERE id = ?').bind('e-not-mine').first();
     expect(row).not.toBeNull();
+  });
+});
+
+describe('consent enforcement on /api/entries', () => {
+  it('returns 403 consent_required from POST /api/entries for a signed-in user who has not consented', async () => {
+    const cookie = await seedSignedInUser('u-noconsent-1', null);
+    const app = buildApp();
+
+    const res = await app.request(
+      '/api/entries',
+      {
+        method: 'POST',
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ color: 'Teal' }),
+      },
+      env,
+      createExecutionContext(),
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'consent_required' });
+
+    // The request must not have created anything.
+    const row = await env.DB.prepare('SELECT id FROM entries WHERE user_id = ?').bind('u-noconsent-1').first();
+    expect(row).toBeNull();
+  });
+
+  it('returns 403 consent_required from GET /api/entries for a signed-in user who has not consented', async () => {
+    const cookie = await seedSignedInUser('u-noconsent-2', null);
+    const app = buildApp();
+
+    const res = await app.request('/api/entries', { headers: { Cookie: cookie } }, env, createExecutionContext());
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'consent_required' });
+  });
+
+  it('returns 403 consent_required from DELETE /api/entries/:id for a signed-in user who has not consented', async () => {
+    // seedManualEntry hardcodes question_id 'q1'.
+    await seedQuestion('q1');
+    const cookie = await seedSignedInUser('u-noconsent-3', null);
+    await seedManualEntry('u-noconsent-3', 'e-noconsent', 1);
+    const app = buildApp();
+
+    const res = await app.request(
+      '/api/entries/e-noconsent',
+      { method: 'DELETE', headers: { Cookie: cookie } },
+      env,
+      createExecutionContext(),
+    );
+
+    expect(res.status).toBe(403);
+    const row = await env.DB.prepare('SELECT id FROM entries WHERE id = ?').bind('e-noconsent').first();
+    expect(row).not.toBeNull();
+  });
+
+  it('still returns 401, not 403, when there is no session at all', async () => {
+    const app = buildApp();
+    const res = await app.request('/api/entries', {}, env, createExecutionContext());
+    expect(res.status).toBe(401);
   });
 });

@@ -21,6 +21,13 @@ export function Garden() {
       navigate('/', { replace: true });
       return;
     }
+    // The API now enforces required consent server-side (403 consent_required),
+    // so mirror Today.tsx's redirect here — otherwise a non-consented user
+    // landing on /garden directly would just see a generic error.
+    if (!user.consentAcceptedAt) {
+      navigate('/consent', { replace: true });
+      return;
+    }
     loadPostHogIfConsented(user);
     void loadMore(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps

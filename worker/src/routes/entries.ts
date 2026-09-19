@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { requireAuth, type AuthedBindings } from '../middleware/require-auth';
+import { requireConsent } from '../middleware/require-consent';
 import { pickQuestion } from '../lib/questions';
 import { pickTask } from '../lib/tasks';
 import { todayUtc } from '../lib/entries';
 
 export const entryRoutes = new Hono<AuthedBindings>();
 
-entryRoutes.post('/', requireAuth, async (c) => {
+entryRoutes.post('/', requireAuth, requireConsent, async (c) => {
   const user = c.get('user');
   const body = await c.req.json<{ color?: string }>();
   if (!body.color) return c.json({ error: 'color is required' }, 400);
@@ -57,7 +58,7 @@ async function loadOwnedEntry(db: D1Database, userId: string, entryId: string): 
   return row ?? null;
 }
 
-entryRoutes.patch('/:id', requireAuth, async (c) => {
+entryRoutes.patch('/:id', requireAuth, requireConsent, async (c) => {
   const user = c.get('user');
   const entryId = c.req.param('id');
   if (!entryId) return c.json({ error: 'not_found' }, 404);
@@ -89,7 +90,7 @@ entryRoutes.patch('/:id', requireAuth, async (c) => {
   return c.json({ error: 'no_recognized_update' }, 400);
 });
 
-entryRoutes.post('/:id/reroll-task', requireAuth, async (c) => {
+entryRoutes.post('/:id/reroll-task', requireAuth, requireConsent, async (c) => {
   const user = c.get('user');
   const entryId = c.req.param('id');
   if (!entryId) return c.json({ error: 'not_found' }, 404);
@@ -103,7 +104,7 @@ entryRoutes.post('/:id/reroll-task', requireAuth, async (c) => {
   return c.json({ task });
 });
 
-entryRoutes.get('/', requireAuth, async (c) => {
+entryRoutes.get('/', requireAuth, requireConsent, async (c) => {
   const user = c.get('user');
   const cursor = c.req.query('cursor');
   const limit = 20;
@@ -126,7 +127,7 @@ entryRoutes.get('/', requireAuth, async (c) => {
   });
 });
 
-entryRoutes.delete('/:id', requireAuth, async (c) => {
+entryRoutes.delete('/:id', requireAuth, requireConsent, async (c) => {
   const user = c.get('user');
   const entryId = c.req.param('id');
   const result = await c.env.DB
