@@ -3,6 +3,7 @@ import { SignIn } from './pages/SignIn';
 import { Consent } from './pages/Consent';
 import { Today } from './pages/Today';
 import { Garden } from './pages/Garden';
+import { Account } from './pages/Account';
 
 export function App() {
   return (
@@ -12,6 +13,7 @@ export function App() {
         <Route path="/consent" element={<Consent />} />
         <Route path="/today" element={<Today />} />
         <Route path="/garden" element={<Garden />} />
+        <Route path="/account" element={<Account />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { TimelineEntry } from '@eve-colors/shared';
 import { apiClient } from '../lib/api';
 import { useCurrentUser } from '../lib/useCurrentUser';
+import { loadPostHogIfConsented } from '../lib/posthog';
 
 export function Garden() {
   const { user, loading } = useCurrentUser();
@@ -19,6 +20,7 @@ export function Garden() {
       navigate('/', { replace: true });
       return;
     }
+    loadPostHogIfConsented(user);
     void loadMore(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, user]);

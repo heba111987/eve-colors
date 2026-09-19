@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { COLORS, type TodayEntry } from '@eve-colors/shared';
 import { apiClient } from '../lib/api';
 import { useCurrentUser } from '../lib/useCurrentUser';
+import { loadPostHogIfConsented } from '../lib/posthog';
 
 type Stage =
   | { name: 'loading' }
@@ -39,6 +40,7 @@ export function Today() {
       navigate('/consent', { replace: true });
       return;
     }
+    loadPostHogIfConsented(user);
     void apiClient.getToday().then(({ entry }) => setStage(stageFromTodayEntry(entry)));
   }, [loading, user, navigate]);
 
