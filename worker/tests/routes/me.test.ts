@@ -128,10 +128,67 @@ describe('DELETE /api/me', () => {
     );
     expect(res.status).toBe(200);
     expect(res.headers.get('Set-Cookie')).toContain('Max-Age=0');
+    expect(await res.json()).toEqual({ ok: true, analyticsPurged: true });
 
     const user = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind('u3').first();
     const entry = await env.DB.prepare('SELECT id FROM entries WHERE id = ?').bind('e-del').first();
     expect(user).toBeNull();
     expect(entry).toBeNull();
+  });
+
+  it('still deletes all D1 rows when the PostHog purge fails, reporting analyticsPurged: false', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network unreachable')));
+    const cookie = await seedSignedInUser('u4');
+    const now = new Date().toISOString();
+    await env.DB
+      .prepare(`INSERT INTO questions (id, text, quadrant, created_at) VALUES ('q-del4', 'Q?', 'mental', ?)`)
+      .bind(now)
+      .run();
+    await env.DB
+      .prepare(
+        `INSERT INTO entries (id, user_id, color, question_id, entry_date, created_at) VALUES ('e-del4', 'u4', 'Teal', 'q-del4', '2026-09-18', ?)`,
+      )
+      .bind(now)
+      .run();
+
+    const app = buildApp();
+    const res = await app.request(
+      '/api/me',
+      { method: 'DELETE', headers: { Cookie: cookie } },
+      env,
+      createExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, analyticsPurged: false });
+    expect(res.headers.get('Set-Cookie')).toContain('Max-Age=0');
+
+    const user = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind('u4').first();
+    const entry = await env.DB.prepare('SELECT id FROM entries WHERE id = ?').bind('e-del4').first();
+    const session = await env.DB.prepare('SELECT id FROM sessions WHERE user_id = ?').bind('u4').first();
+    expect(user).toBeNull();
+    expect(entry).toBeNull();
+    expect(session).toBeNull();
+  });
+
+  it('still deletes all D1 rows when the PostHog lookup returns a non-OK status', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('nope', { status: 403 })));
+    const cookie = await seedSignedInUser('u5');
+
+    const app = buildApp();
+    const res = await app.request(
+      '/api/me',
+      { method: 'DELETE', headers: { Cookie: cookie } },
+      env,
+      createExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, analyticsPurged: false });
+
+    const user = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind('u5').first();
+    const session = await env.DB.prepare('SELECT id FROM sessions WHERE user_id = ?').bind('u5').first();
+    expect(user).toBeNull();
+    expect(session).toBeNull();
   });
 });

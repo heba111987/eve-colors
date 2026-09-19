@@ -28,14 +28,20 @@ meRoutes.post('/consent', requireAuth, async (c) => {
 meRoutes.delete('/', requireAuth, async (c) => {
   const user = c.get('user');
 
+  let analyticsPurged = true;
+  try {
+    await deletePostHogPerson(c.env, user.email);
+  } catch (err) {
+    analyticsPurged = false;
+    console.error('PostHog purge failed during account deletion:', err);
+  }
+
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM entries WHERE user_id = ?').bind(user.id),
     c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
     c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);
 
-  await deletePostHogPerson(c.env, user.email);
-
   c.header('Set-Cookie', clearSessionCookie(c.env.SESSION_COOKIE_DOMAIN));
-  return c.json({ ok: true });
+  return c.json({ ok: true, analyticsPurged });
 });
