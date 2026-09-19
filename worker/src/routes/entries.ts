@@ -100,3 +100,37 @@ entryRoutes.post('/:id/reroll-task', requireAuth, async (c) => {
   await c.env.DB.prepare('UPDATE entries SET task_id = ? WHERE id = ?').bind(task.id, entryId).run();
   return c.json({ task });
 });
+
+entryRoutes.get('/', requireAuth, async (c) => {
+  const user = c.get('user');
+  const cursor = c.req.query('cursor');
+  const limit = 20;
+
+  const rows = cursor
+    ? await c.env.DB
+        .prepare('SELECT * FROM entries WHERE user_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?')
+        .bind(user.id, cursor, limit + 1)
+        .all<EntryRow & { created_at: string }>()
+    : await c.env.DB
+        .prepare('SELECT * FROM entries WHERE user_id = ? ORDER BY created_at DESC LIMIT ?')
+        .bind(user.id, limit + 1)
+        .all<EntryRow & { created_at: string }>();
+
+  const hasMore = rows.results.length > limit;
+  const page = hasMore ? rows.results.slice(0, limit) : rows.results;
+  return c.json({
+    entries: page,
+    nextCursor: hasMore ? page[page.length - 1].created_at : null,
+  });
+});
+
+entryRoutes.delete('/:id', requireAuth, async (c) => {
+  const user = c.get('user');
+  const entryId = c.req.param('id');
+  const result = await c.env.DB
+    .prepare('DELETE FROM entries WHERE id = ? AND user_id = ?')
+    .bind(entryId, user.id)
+    .run();
+  if (result.meta.changes === 0) return c.json({ error: 'not_found' }, 404);
+  return c.json({ ok: true });
+});

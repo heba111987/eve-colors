@@ -244,3 +244,88 @@ describe('POST /api/entries/:id/reroll-task', () => {
     expect(res.status).toBe(409);
   });
 });
+
+async function seedManualEntry(userId: string, id: string, daysAgo: number) {
+  const createdAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB
+    .prepare(
+      `INSERT INTO entries (id, user_id, color, question_id, entry_date, created_at) VALUES (?, ?, 'Teal', 'q1', ?, ?)`,
+    )
+    .bind(id, userId, createdAt.slice(0, 10), createdAt)
+    .run();
+}
+
+describe('GET /api/entries', () => {
+  it('returns entries newest first with pagination', async () => {
+    await seedQuestion('q1');
+    const cookie = await seedSignedInUser('u9');
+    await seedManualEntry('u9', 'e1', 10);
+    await seedManualEntry('u9', 'e2', 5);
+    await seedManualEntry('u9', 'e3', 1);
+    const app = buildApp();
+
+    const firstPage = await app.request(
+      '/api/entries?cursor=' + encodeURIComponent(''),
+      { headers: { Cookie: cookie } },
+      env,
+      createExecutionContext(),
+    );
+    // No cursor on first call:
+    const res = await app.request('/api/entries', { headers: { Cookie: cookie } }, env, createExecutionContext());
+    expect(res.status).toBe(200);
+    const body = await res.json<{ entries: Array<{ id: string }>; nextCursor: string | null }>();
+    expect(body.entries.map((e) => e.id)).toEqual(['e3', 'e2', 'e1']);
+    expect(body.nextCursor).toBeNull();
+    void firstPage;
+  });
+
+  it('only returns the requesting user\'s entries', async () => {
+    await seedQuestion('q1');
+    const cookieA = await seedSignedInUser('u10');
+    await seedSignedInUser('u11');
+    await seedManualEntry('u10', 'e-a', 1);
+    await seedManualEntry('u11', 'e-b', 1);
+    const app = buildApp();
+
+    const res = await app.request('/api/entries', { headers: { Cookie: cookieA } }, env, createExecutionContext());
+    const body = await res.json<{ entries: Array<{ id: string }> }>();
+    expect(body.entries.map((e) => e.id)).toEqual(['e-a']);
+  });
+});
+
+describe('DELETE /api/entries/:id', () => {
+  it('deletes an entry the user owns', async () => {
+    await seedQuestion('q1');
+    const cookie = await seedSignedInUser('u12');
+    await seedManualEntry('u12', 'e-owned', 1);
+    const app = buildApp();
+
+    const res = await app.request(
+      '/api/entries/e-owned',
+      { method: 'DELETE', headers: { Cookie: cookie } },
+      env,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    const row = await env.DB.prepare('SELECT id FROM entries WHERE id = ?').bind('e-owned').first();
+    expect(row).toBeNull();
+  });
+
+  it('returns 404 for an entry owned by someone else', async () => {
+    await seedQuestion('q1');
+    await seedSignedInUser('u13');
+    const cookieB = await seedSignedInUser('u14');
+    await seedManualEntry('u13', 'e-not-mine', 1);
+    const app = buildApp();
+
+    const res = await app.request(
+      '/api/entries/e-not-mine',
+      { method: 'DELETE', headers: { Cookie: cookieB } },
+      env,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(404);
+    const row = await env.DB.prepare('SELECT id FROM entries WHERE id = ?').bind('e-not-mine').first();
+    expect(row).not.toBeNull();
+  });
+});
