@@ -6,7 +6,7 @@
 
 **Architecture:** A single Cloudflare Worker (`/worker`) using Hono for routing exposes `/auth/*` and `/api/*`, backed by Cloudflare D1. A static site (`/frontend`) on Cloudflare Pages calls that API with `credentials: 'include'` session cookies. No build step on either side beyond `wrangler`.
 
-**Tech Stack:** Cloudflare Workers, Hono, Cloudflare D1 (SQLite), Cloudflare Pages, Vitest + `@cloudflare/vitest-pool-workers`, plain HTML/CSS/vanilla JS, PostHog Cloud (EU region).
+**Tech Stack:** Cloudflare Workers, Hono, Cloudflare D1 (SQLite), Cloudflare Pages, Vitest + `@cloudflare/vitest-pool-workers`, React + Vite + React Router (web), a shared `@eve-colors/shared` package (API client + types, reused later by a React Native app), PostHog Cloud (EU region). npm workspaces monorepo: `/worker`, `/shared`, `/web`.
 
 **Spec:** `docs/superpowers/specs/2026-09-18-cloudflare-rebuild-design.md`
 
@@ -24,24 +24,28 @@
 - Analytics/marketing consent is opt-in, unchecked by default, and separate from the required wellness/terms consent.
 - PostHog EU region only. Never sell user data. No tracking script loads without consent.
 - Account deletion (`DELETE /api/me`) must purge both the D1 rows (entries, sessions, user) and the PostHog person record — "delete all trace" spans both systems.
-- The frontend is intentionally a **rough prototype**: plain HTML/CSS/vanilla JS, minimal styling, no attempt at polished visuals. The owner is redesigning the look separately in claude.ai/design — do not invest effort in graphics, custom fonts, or animation.
+- The frontend is intentionally a **rough prototype**: React components with minimal, basic CSS, no attempt at polished visuals. The owner is redesigning the look separately in claude.ai/design — do not invest effort in graphics, custom fonts, or animation.
+- The repo is an npm-workspaces monorepo (`/worker`, `/shared`, `/web`) so the API client and types in `/shared` can be reused by a React Native app planned soon after this web app. Don't write browser-only or React-DOM-only code into `/shared`.
+- The API (Worker + D1) is the one backend both the web app and the future mobile app call — no separate "app API" or second data store. Sessions support both a browser cookie (web) and a bearer token (`Authorization: Bearer <token>`, for mobile) against the same `sessions` table, so mobile auth needs no backend changes when the React Native app is built.
 
 ---
 
-## Task 1: Repo scaffolding — remove Wix/Astro, add /worker and /frontend
+## Task 1: Repo scaffolding — remove Wix/Astro, add npm-workspaces monorepo (/worker, /shared, /web)
 
 **Files:**
-- Delete: `wix.config.json`, `astro.config.mjs`, `skills-lock.json`, `src/extensions.ts`, `src/env.d.ts`, `src/styles.d.ts`, `src/extensions/` (entire directory), `.agents/skills/wix-app/`, `.agents/skills/wix-auth/`, `.agents/skills/wix-base44-connector/`, `.agents/skills/wix-design-system/`, `.agents/skills/wix-docs/`, `.agents/skills/wix-manage/`, `.agents/skills/wix-vibe-headless/`
-- Modify: `package.json` (root), `tsconfig.json` (root)
-- Create: `worker/` (empty dir, populated in later tasks), `frontend/` (empty dir, populated in later tasks), `.gitignore` entries for `.dev.vars` and `node_modules`
+- Delete: `wix.config.json`, `astro.config.mjs`, `skills-lock.json`, `src/extensions.ts`, `src/env.d.ts`, `src/styles.d.ts`, `src/extensions/` (entire directory), `.agents/skills/wix-app/`, `.agents/skills/wix-auth/`, `.agents/skills/wix-base44-connector/`, `.agents/skills/wix-design-system/`, `.agents/skills/wix-docs/`, `.agents/skills/wix-manage/`, `.agents/skills/wix-vibe-headless/`, `tsconfig.json` (root — replaced by a per-workspace tsconfig in later tasks)
+- Modify: `package.json` (root)
+- Create: `worker/package.json`, `shared/package.json`, `web/` (empty dir, populated in Task 15), `.gitignore` entries for `.dev.vars` and `node_modules`
 
 **Interfaces:**
-- Produces: root `package.json` scripts (`dev:worker`, `dev:frontend`, `test`, `db:migrate:local`, `db:migrate:remote`) that every later task's manual-verification steps rely on.
+- Produces: three npm workspaces — `@eve-colors/worker`, `@eve-colors/shared`, `@eve-colors/web` — and root scripts (`dev:worker`, `dev:web`, `test`, `db:migrate:local`, `db:migrate:remote`) that every later task's steps rely on. `npm run <script> --workspace=<name>` runs with that workspace's directory as `cwd`, so each workspace's own config files (`wrangler.toml`, `vite.config.ts`, etc.) can use paths relative to themselves.
+
+**Why a monorepo now:** the owner is building a React Native app soon after this web app, and wants the API client and shared types ready to reuse rather than rewritten later (see Global Constraints).
 
 - [ ] **Step 1: Remove the Wix/Astro files**
 
 ```bash
-git rm -r wix.config.json astro.config.mjs skills-lock.json \
+git rm -r wix.config.json astro.config.mjs skills-lock.json tsconfig.json \
   src/extensions.ts src/env.d.ts src/styles.d.ts src/extensions \
   .agents/skills/wix-app .agents/skills/wix-auth .agents/skills/wix-base44-connector \
   .agents/skills/wix-design-system .agents/skills/wix-docs .agents/skills/wix-manage \
@@ -54,15 +58,36 @@ git rm -r wix.config.json astro.config.mjs skills-lock.json \
 {
   "name": "eve-colors",
   "private": true,
+  "workspaces": ["worker", "shared", "web"],
+  "scripts": {
+    "dev:worker": "npm run dev --workspace=worker",
+    "dev:web": "npm run dev --workspace=web",
+    "build:web": "npm run build --workspace=web",
+    "test": "npm run test --workspace=worker && npm run test --workspace=shared",
+    "db:migrate:local": "npm run db:migrate:local --workspace=worker",
+    "db:migrate:remote": "npm run db:migrate:remote --workspace=worker",
+    "deploy:worker": "npm run deploy --workspace=worker",
+    "deploy:web": "npm run deploy --workspace=web"
+  }
+}
+```
+
+- [ ] **Step 3: Create `worker/package.json`**
+
+```json
+{
+  "name": "@eve-colors/worker",
+  "private": true,
   "type": "module",
   "scripts": {
-    "dev:worker": "wrangler dev --config worker/wrangler.toml",
-    "dev:frontend": "wrangler pages dev frontend --port 8788",
-    "test": "vitest --config worker/vitest.config.ts",
-    "db:migrate:local": "wrangler d1 migrations apply eve-colors --local --config worker/wrangler.toml",
-    "db:migrate:remote": "wrangler d1 migrations apply eve-colors --remote --config worker/wrangler.toml",
-    "deploy:worker": "wrangler deploy --config worker/wrangler.toml",
-    "deploy:frontend": "wrangler pages deploy frontend"
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "db:migrate:local": "wrangler d1 migrations apply eve-colors --local",
+    "db:migrate:remote": "wrangler d1 migrations apply eve-colors --remote",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.6.0",
@@ -70,36 +95,36 @@ git rm -r wix.config.json astro.config.mjs skills-lock.json \
     "typescript": "^5.8.3",
     "vitest": "^2.1.0",
     "wrangler": "^3.90.0"
-  },
-  "dependencies": {
-    "hono": "^4.6.0"
   }
 }
 ```
 
-- [ ] **Step 3: Replace root `tsconfig.json`**
+- [ ] **Step 4: Create `shared/package.json`**
 
 ```json
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["ES2022"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "strict": true,
-    "skipLibCheck": true,
-    "types": ["@cloudflare/workers-types", "vitest/globals"],
-    "resolveJsonModule": true,
-    "noEmit": true
+  "name": "@eve-colors/shared",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "vitest run"
   },
-  "include": ["worker/src", "worker/tests"]
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.0"
+  }
 }
 ```
 
-- [ ] **Step 4: Create directories and `.gitignore` entries**
+`/web`'s `package.json` is created in Task 15, once there's real content to put in it.
+
+- [ ] **Step 5: Create directories and `.gitignore` entries**
 
 ```bash
-mkdir -p worker/src/lib worker/src/routes worker/src/middleware worker/migrations worker/tests frontend/shared
+mkdir -p worker/src/lib worker/src/routes worker/src/middleware worker/migrations worker/tests \
+  shared/src shared/tests
 ```
 
 Append to `.gitignore` (create it if it doesn't exist):
@@ -107,19 +132,20 @@ Append to `.gitignore` (create it if it doesn't exist):
 ```
 node_modules/
 .wrangler/
+dist/
 worker/.dev.vars
 ```
 
-- [ ] **Step 5: Install dependencies**
+- [ ] **Step 6: Install dependencies**
 
 Run: `npm install`
-Expected: installs succeed, `node_modules/` created, no errors.
+Expected: installs succeed, `node_modules/` created at the root (npm workspaces hoists shared deps), no errors. It's fine if this step reports "no workspaces found for `web`" until Task 15 adds `web/package.json` — the `worker` and `shared` workspaces are enough for now.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add -A
-git commit -m "chore: remove Wix/Astro scaffolding, add Cloudflare worker/frontend skeleton"
+git commit -m "chore: remove Wix/Astro scaffolding, add npm-workspaces monorepo skeleton"
 ```
 
 ---
@@ -313,12 +339,12 @@ describe('D1 schema', () => {
 
 - [ ] **Step 7: Run the test to verify it fails**
 
-Run: `npm test`
+Run: `npm run test --workspace=worker`
 Expected: FAIL — no `wrangler.toml` D1 config error or module resolution error, since nothing is wired yet. (If `npm install` in Task 1 hasn't pulled in `@cloudflare/vitest-pool-workers`, add it now: `npm install -D @cloudflare/vitest-pool-workers`.)
 
 - [ ] **Step 8: Run again after the files above exist**
 
-Run: `npm test`
+Run: `npm run test --workspace=worker`
 Expected: PASS — both tests green.
 
 - [ ] **Step 9: Commit**
@@ -425,12 +451,12 @@ describe('seed content', () => {
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `npm test`
+Run: `npm run test --workspace=worker`
 Expected: FAIL — 0 rows returned, since the migration doesn't exist yet in this step order. (If running after Step 1 is already written, it should PASS — reorder isn't critical here since this is seed data, not logic; just confirm the assertion actually exercises real data by temporarily commenting out the migration's INSERT statements once, confirming a failure, then restoring them.)
 
 - [ ] **Step 4: Confirm it passes with the migration in place**
 
-Run: `npm test`
+Run: `npm run test --workspace=worker`
 Expected: PASS — both counts match.
 
 - [ ] **Step 5: Commit**
@@ -449,7 +475,7 @@ git commit -m "feat(worker): seed initial question and task content"
 - Test: `worker/tests/lib/session.test.ts`
 
 **Interfaces:**
-- Produces: `SESSION_COOKIE_NAME`, `SessionUser`, `createSession(db, userId)`, `sessionCookie(sessionId, domain, expiresAt)`, `clearSessionCookie(domain)`, `parseSessionId(cookieHeader)`, `getSessionUser(db, sessionId)`, `deleteSession(db, sessionId)` — consumed by Task 6's `requireAuth` middleware and Task 5's OAuth callback.
+- Produces: `SESSION_COOKIE_NAME`, `SessionUser`, `createSession(db, userId)`, `sessionCookie(sessionId, domain, expiresAt)`, `clearSessionCookie(domain)`, `parseSessionId(cookieHeader)`, `parseBearerToken(authHeader)`, `getSessionUser(db, sessionId)`, `deleteSession(db, sessionId)` — consumed by Task 6's `requireAuth` middleware and Task 5's OAuth routes. The session id doubles as the bearer token: there's no separate token table — a mobile client gets the same opaque id back from `POST /auth/google/token` (Task 5) that a web client gets in its cookie, just transported differently.
 
 - [ ] **Step 1: Write the failing test `worker/tests/lib/session.test.ts`**
 
@@ -460,6 +486,7 @@ import {
   createSession,
   deleteSession,
   getSessionUser,
+  parseBearerToken,
   parseSessionId,
   sessionCookie,
 } from '../../src/lib/session';
@@ -494,6 +521,13 @@ describe('session lib', () => {
     expect(parseSessionId(null)).toBeNull();
   });
 
+  it('parses a bearer token out of an Authorization header', () => {
+    expect(parseBearerToken('Bearer abc123')).toBe('abc123');
+    expect(parseBearerToken('bearer abc123')).toBe('abc123');
+    expect(parseBearerToken('Basic abc123')).toBeNull();
+    expect(parseBearerToken(null)).toBeNull();
+  });
+
   it('builds a cookie string with the right attributes', () => {
     const cookie = sessionCookie('abc123', '.example.com', new Date('2027-01-01').toISOString());
     expect(cookie).toContain('eve_session=abc123');
@@ -513,7 +547,7 @@ describe('session lib', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- session.test`
+Run: `npm run test --workspace=worker -- session.test`
 Expected: FAIL with "Cannot find module '../../src/lib/session'"
 
 - [ ] **Step 3: Write `worker/src/lib/session.ts`**
@@ -561,6 +595,12 @@ export function parseSessionId(cookieHeader: string | null): string | null {
   return match ? match.slice(SESSION_COOKIE_NAME.length + 1) : null;
 }
 
+export function parseBearerToken(authHeader: string | null): string | null {
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1] : null;
+}
+
 export async function getSessionUser(db: D1Database, sessionId: string): Promise<SessionUser | null> {
   const row = await db
     .prepare(
@@ -593,8 +633,8 @@ export async function deleteSession(db: D1Database, sessionId: string): Promise<
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm test -- session.test`
-Expected: PASS — all 5 tests green.
+Run: `npm run test --workspace=worker -- session.test`
+Expected: PASS — all 6 tests green.
 
 - [ ] **Step 5: Commit**
 
@@ -614,14 +654,15 @@ git commit -m "feat(worker): add session creation, cookie, and lookup helpers"
 - Test: `worker/tests/routes/auth.test.ts`
 
 **Interfaces:**
-- Consumes: `createSession`, `sessionCookie` from `worker/src/lib/session.ts` (Task 4).
-- Produces: `authRoutes` (a `Hono<{ Bindings: Env }>` instance) mounted at `/auth` in Task 13's `src/index.ts`.
+- Consumes: `createSession`, `sessionCookie`, `deleteSession`, `clearSessionCookie`, `parseBearerToken`, `parseSessionId` from `worker/src/lib/session.ts` (Task 4).
+- Produces: `upsertGoogleUser(db, userInfo)` (shared by the cookie and token login routes below) and `authRoutes` (a `Hono<{ Bindings: Env }>` instance) mounted at `/auth` in Task 13's `src/index.ts`. `authRoutes` covers both login styles: `GET /auth/google/start` + `GET /auth/google/callback` (browser redirect + cookie, for the web app) and `POST /auth/google/token` (JSON in/out, for a native app using Google's native Sign-In SDK to get an ID token directly — no redirect dance needed). Both issue the same kind of session; `POST /auth/logout` ends either one.
 
 - [ ] **Step 1: Write the failing test `worker/tests/lib/auth-google.test.ts`**
 
 ```typescript
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exchangeCodeForTokens, googleAuthUrl, verifyIdToken } from '../../src/lib/auth-google';
+import { env as workerEnv } from 'cloudflare:test';
+import { exchangeCodeForTokens, googleAuthUrl, upsertGoogleUser, verifyIdToken } from '../../src/lib/auth-google';
 
 const env = {
   GOOGLE_CLIENT_ID: 'client-123',
@@ -708,11 +749,42 @@ describe('verifyIdToken', () => {
     await expect(verifyIdToken('id-token-1', 'client-123')).rejects.toThrow('not verified');
   });
 });
+
+describe('upsertGoogleUser', () => {
+  it('creates a new user on first login', async () => {
+    const result = await upsertGoogleUser(workerEnv.DB, {
+      sub: 'sub-new', email: 'new@example.com', email_verified: true, aud: 'client-123', name: 'New',
+    });
+    expect(result.isNewUser).toBe(true);
+    const row = await workerEnv.DB
+      .prepare('SELECT email FROM users WHERE id = ?')
+      .bind(result.userId)
+      .first<{ email: string }>();
+    expect(row?.email).toBe('new@example.com');
+  });
+
+  it('updates an existing user by google_sub on repeat login', async () => {
+    const first = await upsertGoogleUser(workerEnv.DB, {
+      sub: 'sub-repeat', email: 'old@example.com', email_verified: true, aud: 'client-123', name: 'Old Name',
+    });
+    const second = await upsertGoogleUser(workerEnv.DB, {
+      sub: 'sub-repeat', email: 'new@example.com', email_verified: true, aud: 'client-123', name: 'New Name',
+    });
+    expect(second.isNewUser).toBe(false);
+    expect(second.userId).toBe(first.userId);
+    const row = await workerEnv.DB
+      .prepare('SELECT email, display_name FROM users WHERE id = ?')
+      .bind(first.userId)
+      .first<{ email: string; display_name: string }>();
+    expect(row?.email).toBe('new@example.com');
+    expect(row?.display_name).toBe('New Name');
+  });
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- auth-google.test`
+Run: `npm run test --workspace=worker -- auth-google.test`
 Expected: FAIL with "Cannot find module '../../src/lib/auth-google'"
 
 - [ ] **Step 3: Write `worker/src/lib/auth-google.ts`**
@@ -778,12 +850,41 @@ export async function verifyIdToken(idToken: string, expectedAudience: string): 
   if (!info.email_verified) throw new Error('Google email not verified');
   return info;
 }
+
+export async function upsertGoogleUser(
+  db: D1Database,
+  userInfo: GoogleUserInfo,
+): Promise<{ userId: string; isNewUser: boolean }> {
+  const now = new Date().toISOString();
+  const existing = await db
+    .prepare('SELECT id FROM users WHERE google_sub = ?')
+    .bind(userInfo.sub)
+    .first<{ id: string }>();
+
+  if (existing) {
+    await db
+      .prepare('UPDATE users SET last_login_at = ?, email = ?, display_name = ? WHERE id = ?')
+      .bind(now, userInfo.email, userInfo.name ?? null, existing.id)
+      .run();
+    return { userId: existing.id, isNewUser: false };
+  }
+
+  const userId = crypto.randomUUID();
+  await db
+    .prepare(
+      `INSERT INTO users (id, google_sub, email, display_name, created_at, last_login_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(userId, userInfo.sub, userInfo.email, userInfo.name ?? null, now, now)
+    .run();
+  return { userId, isNewUser: true };
+}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm test -- auth-google.test`
-Expected: PASS — all 6 tests green.
+Run: `npm run test --workspace=worker -- auth-google.test`
+Expected: PASS — all 8 tests green.
 
 - [ ] **Step 5: Write the failing test `worker/tests/routes/auth.test.ts`**
 
@@ -792,6 +893,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { env, createExecutionContext } from 'cloudflare:test';
 import { Hono } from 'hono';
 import { authRoutes } from '../../src/routes/auth';
+import { createSession } from '../../src/lib/session';
 import type { Env } from '../../src/types';
 
 function buildApp() {
@@ -826,7 +928,7 @@ describe('GET /auth/google/callback', () => {
     expect(res.status).toBe(400);
   });
 
-  it('creates a new user, session, and redirects to /consent.html on first login', async () => {
+  function stubGoogleFetch(userInfo: Record<string, unknown>) {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation((url: string) => {
@@ -835,19 +937,19 @@ describe('GET /auth/google/callback', () => {
             new Response(JSON.stringify({ access_token: 'a', id_token: 'id-1', expires_in: 3600, token_type: 'Bearer' })),
           );
         }
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              sub: 'google-sub-1',
-              email: 'new-user@example.com',
-              email_verified: true,
-              aud: env.GOOGLE_CLIENT_ID,
-              name: 'New User',
-            }),
-          ),
-        );
+        return Promise.resolve(new Response(JSON.stringify(userInfo)));
       }),
     );
+  }
+
+  it('creates a new user, session, and redirects to /consent on first login', async () => {
+    stubGoogleFetch({
+      sub: 'google-sub-1',
+      email: 'new-user@example.com',
+      email_verified: true,
+      aud: env.GOOGLE_CLIENT_ID,
+      name: 'New User',
+    });
 
     const app = buildApp();
     const res = await app.request(
@@ -858,7 +960,7 @@ describe('GET /auth/google/callback', () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe(`${env.FRONTEND_BASE_URL}/consent.html`);
+    expect(res.headers.get('Location')).toBe(`${env.FRONTEND_BASE_URL}/consent`);
     expect(res.headers.get('Set-Cookie')).toContain('eve_session=');
 
     const user = await env.DB
@@ -867,12 +969,137 @@ describe('GET /auth/google/callback', () => {
       .first<{ email: string }>();
     expect(user?.email).toBe('new-user@example.com');
   });
+
+  it('redirects a repeat login straight to /today', async () => {
+    stubGoogleFetch({
+      sub: 'google-sub-2',
+      email: 'repeat-user@example.com',
+      email_verified: true,
+      aud: env.GOOGLE_CLIENT_ID,
+      name: 'Repeat User',
+    });
+    const app = buildApp();
+
+    await app.request(
+      '/auth/google/callback?code=abc&state=same',
+      { headers: { Cookie: 'eve_oauth_state=same' } },
+      env,
+      createExecutionContext(),
+    );
+    const second = await app.request(
+      '/auth/google/callback?code=abc&state=same',
+      { headers: { Cookie: 'eve_oauth_state=same' } },
+      env,
+      createExecutionContext(),
+    );
+
+    expect(second.headers.get('Location')).toBe(`${env.FRONTEND_BASE_URL}/today`);
+  });
+});
+
+describe('POST /auth/google/token', () => {
+  it('returns 400 when idToken is missing', async () => {
+    const app = buildApp();
+    const res = await app.request(
+      '/auth/google/token',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+      env,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('verifies the Google ID token and returns a bearer session token', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            sub: 'google-sub-mobile',
+            email: 'mobile-user@example.com',
+            email_verified: true,
+            aud: env.GOOGLE_CLIENT_ID,
+            name: 'Mobile User',
+          }),
+        ),
+      ),
+    );
+
+    const app = buildApp();
+    const res = await app.request(
+      '/auth/google/token',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: 'id-mobile-1' }) },
+      env,
+      createExecutionContext(),
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json<{ token: string; isNewUser: boolean }>();
+    expect(body.token).toBeTruthy();
+    expect(body.isNewUser).toBe(true);
+
+    const session = await env.DB
+      .prepare('SELECT user_id FROM sessions WHERE id = ?')
+      .bind(body.token)
+      .first<{ user_id: string }>();
+    expect(session).not.toBeNull();
+  });
+});
+
+describe('POST /auth/logout', () => {
+  async function seedUser(id: string) {
+    const now = new Date().toISOString();
+    await env.DB
+      .prepare(`INSERT INTO users (id, google_sub, email, created_at, last_login_at) VALUES (?, ?, ?, ?, ?)`)
+      .bind(id, `sub-${id}`, `${id}@example.com`, now, now)
+      .run();
+  }
+
+  it('deletes the session behind a cookie', async () => {
+    await seedUser('u-logout');
+    const session = await createSession(env.DB, 'u-logout');
+    const app = buildApp();
+
+    const res = await app.request(
+      '/auth/logout',
+      { method: 'POST', headers: { Cookie: `eve_session=${session.id}` } },
+      env,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+
+    const remaining = await env.DB.prepare('SELECT id FROM sessions WHERE id = ?').bind(session.id).first();
+    expect(remaining).toBeNull();
+  });
+
+  it('deletes the session behind a bearer token', async () => {
+    await seedUser('u-logout-2');
+    const session = await createSession(env.DB, 'u-logout-2');
+    const app = buildApp();
+
+    const res = await app.request(
+      '/auth/logout',
+      { method: 'POST', headers: { Authorization: `Bearer ${session.id}` } },
+      env,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+
+    const remaining = await env.DB.prepare('SELECT id FROM sessions WHERE id = ?').bind(session.id).first();
+    expect(remaining).toBeNull();
+  });
+
+  it('is idempotent when there is no session to delete', async () => {
+    const app = buildApp();
+    const res = await app.request('/auth/logout', { method: 'POST' }, env, createExecutionContext());
+    expect(res.status).toBe(200);
+  });
 });
 ```
 
 - [ ] **Step 6: Run test to verify it fails**
 
-Run: `npm test -- routes/auth.test`
+Run: `npm run test --workspace=worker -- routes/auth.test`
 Expected: FAIL with "Cannot find module '../../src/routes/auth'"
 
 - [ ] **Step 7: Write `worker/src/routes/auth.ts`**
@@ -880,8 +1107,8 @@ Expected: FAIL with "Cannot find module '../../src/routes/auth'"
 ```typescript
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { exchangeCodeForTokens, googleAuthUrl, verifyIdToken } from '../lib/auth-google';
-import { createSession, sessionCookie } from '../lib/session';
+import { exchangeCodeForTokens, googleAuthUrl, upsertGoogleUser, verifyIdToken } from '../lib/auth-google';
+import { clearSessionCookie, createSession, deleteSession, parseBearerToken, parseSessionId, sessionCookie } from '../lib/session';
 
 const OAUTH_STATE_COOKIE = 'eve_oauth_state';
 
@@ -895,6 +1122,7 @@ function readCookie(cookieHeader: string, name: string): string | undefined {
 
 export const authRoutes = new Hono<{ Bindings: Env }>();
 
+// Web login: browser redirect + HttpOnly cookie.
 authRoutes.get('/google/start', (c) => {
   const state = crypto.randomUUID();
   const url = googleAuthUrl(c.env, state);
@@ -916,49 +1144,48 @@ authRoutes.get('/google/callback', async (c) => {
 
   const tokens = await exchangeCodeForTokens(c.env, code);
   const userInfo = await verifyIdToken(tokens.id_token, c.env.GOOGLE_CLIENT_ID);
-
-  const now = new Date().toISOString();
-  const existing = await c.env.DB
-    .prepare('SELECT id FROM users WHERE google_sub = ?')
-    .bind(userInfo.sub)
-    .first<{ id: string }>();
-
-  let userId: string;
-  if (existing) {
-    userId = existing.id;
-    await c.env.DB
-      .prepare('UPDATE users SET last_login_at = ?, email = ?, display_name = ? WHERE id = ?')
-      .bind(now, userInfo.email, userInfo.name ?? null, userId)
-      .run();
-  } else {
-    userId = crypto.randomUUID();
-    await c.env.DB
-      .prepare(
-        `INSERT INTO users (id, google_sub, email, display_name, created_at, last_login_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(userId, userInfo.sub, userInfo.email, userInfo.name ?? null, now, now)
-      .run();
-  }
+  const { userId, isNewUser } = await upsertGoogleUser(c.env.DB, userInfo);
 
   const session = await createSession(c.env.DB, userId);
   c.header('Set-Cookie', sessionCookie(session.id, c.env.SESSION_COOKIE_DOMAIN, session.expiresAt));
-  const destination = existing ? '/today.html' : '/consent.html';
+  const destination = isNewUser ? '/consent' : '/today';
   return c.redirect(`${c.env.FRONTEND_BASE_URL}${destination}`, 302);
+});
+
+// Mobile login: the native app gets an ID token from Google's own Sign-In SDK
+// (no redirect/cookie dance needed) and POSTs it here for a bearer session token.
+authRoutes.post('/google/token', async (c) => {
+  const body = await c.req.json<{ idToken?: string }>().catch(() => ({}) as { idToken?: string });
+  if (!body.idToken) return c.json({ error: 'idToken is required' }, 400);
+
+  const userInfo = await verifyIdToken(body.idToken, c.env.GOOGLE_CLIENT_ID);
+  const { userId, isNewUser } = await upsertGoogleUser(c.env.DB, userInfo);
+  const session = await createSession(c.env.DB, userId);
+
+  return c.json({ token: session.id, expiresAt: session.expiresAt, isNewUser }, isNewUser ? 201 : 200);
+});
+
+// Works for both cookie and bearer sessions; always succeeds, even with no session.
+authRoutes.post('/logout', async (c) => {
+  const sessionId =
+    parseBearerToken(c.req.header('Authorization') ?? null) ?? parseSessionId(c.req.header('Cookie') ?? null);
+  if (sessionId) await deleteSession(c.env.DB, sessionId);
+  c.header('Set-Cookie', clearSessionCookie(c.env.SESSION_COOKIE_DOMAIN));
+  return c.json({ ok: true });
 });
 ```
 
 - [ ] **Step 8: Run test to verify it passes**
 
-Run: `npm test -- routes/auth.test`
-Expected: PASS — all 3 tests green.
+Run: `npm run test --workspace=worker -- routes/auth.test`
+Expected: PASS — all 9 tests green.
 
 - [ ] **Step 9: Commit**
 
 ```bash
 git add worker/src/lib/auth-google.ts worker/src/routes/auth.ts \
   worker/tests/lib/auth-google.test.ts worker/tests/routes/auth.test.ts
-git commit -m "feat(worker): implement Google OAuth start/callback routes"
+git commit -m "feat(worker): implement Google OAuth for web (cookie) and mobile (bearer token)"
 ```
 
 ---
@@ -971,20 +1198,21 @@ git commit -m "feat(worker): implement Google OAuth start/callback routes"
 - Test: `worker/tests/routes/me.test.ts`
 
 **Interfaces:**
-- Consumes: `getSessionUser`, `parseSessionId`, `SessionUser` from `worker/src/lib/session.ts` (Task 4).
-- Produces: `requireAuth` middleware (sets `c.set('user', SessionUser)`), consumed by every route in Tasks 7–9; `meRoutes` mounted at `/api/me` in Task 13.
+- Consumes: `getSessionUser`, `parseSessionId`, `parseBearerToken`, `SessionUser` from `worker/src/lib/session.ts` (Task 4).
+- Produces: `requireAuth` middleware (sets `c.set('user', SessionUser)`, accepting either a cookie or an `Authorization: Bearer` header — the same middleware serves both the web app and, later, the mobile app), consumed by every authed route in Tasks 7 and 10–12; `meRoutes` mounted at `/api/me` in Task 13.
 
 - [ ] **Step 1: Write `worker/src/middleware/require-auth.ts`**
 
 ```typescript
 import type { Context, Next } from 'hono';
 import type { Env } from '../types';
-import { getSessionUser, parseSessionId, type SessionUser } from '../lib/session';
+import { getSessionUser, parseBearerToken, parseSessionId, type SessionUser } from '../lib/session';
 
 export type AuthedBindings = { Bindings: Env; Variables: { user: SessionUser } };
 
 export async function requireAuth(c: Context<AuthedBindings>, next: Next) {
-  const sessionId = parseSessionId(c.req.header('Cookie') ?? null);
+  const sessionId =
+    parseBearerToken(c.req.header('Authorization') ?? null) ?? parseSessionId(c.req.header('Cookie') ?? null);
   const user = sessionId ? await getSessionUser(c.env.DB, sessionId) : null;
   if (!user) return c.json({ error: 'unauthorized' }, 401);
   c.set('user', user);
@@ -1037,6 +1265,25 @@ describe('GET /api/me', () => {
     expect(body.user.email).toBe('u1@example.com');
     expect(body.user.consentAcceptedAt).toBeNull();
   });
+
+  it('authenticates via an Authorization: Bearer header instead of a cookie', async () => {
+    const now = new Date().toISOString();
+    await env.DB
+      .prepare(`INSERT INTO users (id, google_sub, email, created_at, last_login_at) VALUES ('u1b','sub-u1b','u1b@example.com', ?, ?)`)
+      .bind(now, now)
+      .run();
+    const session = await createSession(env.DB, 'u1b');
+    const app = buildApp();
+    const res = await app.request(
+      '/api/me',
+      { headers: { Authorization: `Bearer ${session.id}` } },
+      env,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json<{ user: { email: string } }>();
+    expect(body.user.email).toBe('u1b@example.com');
+  });
 });
 
 describe('POST /api/me/consent', () => {
@@ -1077,7 +1324,7 @@ describe('POST /api/me/consent', () => {
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `npm test -- routes/me.test`
+Run: `npm run test --workspace=worker -- routes/me.test`
 Expected: FAIL with "Cannot find module '../../src/routes/me'"
 
 - [ ] **Step 4: Write `worker/src/routes/me.ts`**
@@ -1111,8 +1358,8 @@ meRoutes.post('/consent', requireAuth, async (c) => {
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `npm test -- routes/me.test`
-Expected: PASS — all 3 tests green.
+Run: `npm run test --workspace=worker -- routes/me.test`
+Expected: PASS — all 4 tests green.
 
 - [ ] **Step 6: Commit**
 
@@ -1186,7 +1433,7 @@ describe('deletePostHogPerson', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- lib/posthog.test`
+Run: `npm run test --workspace=worker -- lib/posthog.test`
 Expected: FAIL with "Cannot find module '../../src/lib/posthog'"
 
 - [ ] **Step 3: Write `worker/src/lib/posthog.ts`**
@@ -1218,7 +1465,7 @@ export async function deletePostHogPerson(env: PostHogEnv, distinctId: string): 
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm test -- lib/posthog.test`
+Run: `npm run test --workspace=worker -- lib/posthog.test`
 Expected: PASS — all 3 tests green.
 
 - [ ] **Step 5: Write the failing test — append to `worker/tests/routes/me.test.ts`**
@@ -1265,7 +1512,7 @@ Add `vi` to the existing `import { describe, expect, it } from 'vitest';` line a
 
 - [ ] **Step 6: Run test to verify it fails**
 
-Run: `npm test -- routes/me.test`
+Run: `npm run test --workspace=worker -- routes/me.test`
 Expected: FAIL — `DELETE /api/me` returns 404 (no route registered).
 
 - [ ] **Step 7: Extend `worker/src/routes/me.ts`**
@@ -1300,8 +1547,8 @@ meRoutes.delete('/', requireAuth, async (c) => {
 
 - [ ] **Step 8: Run test to verify it passes**
 
-Run: `npm test -- routes/me.test`
-Expected: PASS — all 4 tests green.
+Run: `npm run test --workspace=worker -- routes/me.test`
+Expected: PASS — all 5 tests green.
 
 - [ ] **Step 9: Commit**
 
@@ -1395,7 +1642,7 @@ describe('pickQuestion', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- lib/questions.test`
+Run: `npm run test --workspace=worker -- lib/questions.test`
 Expected: FAIL with "Cannot find module '../../src/lib/questions'"
 
 - [ ] **Step 3: Write `worker/src/lib/questions.ts`**
@@ -1449,7 +1696,7 @@ export async function pickQuestion(db: D1Database, userId: string): Promise<Ques
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm test -- lib/questions.test`
+Run: `npm run test --workspace=worker -- lib/questions.test`
 Expected: PASS — all 3 tests green.
 
 - [ ] **Step 5: Commit**
@@ -1514,7 +1761,7 @@ describe('pickTask', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- lib/tasks.test`
+Run: `npm run test --workspace=worker -- lib/tasks.test`
 Expected: FAIL with "Cannot find module '../../src/lib/tasks'"
 
 - [ ] **Step 3: Write `worker/src/lib/tasks.ts`**
@@ -1545,7 +1792,7 @@ export async function pickTask(db: D1Database, excludeTaskId?: string): Promise<
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm test -- lib/tasks.test`
+Run: `npm run test --workspace=worker -- lib/tasks.test`
 Expected: PASS — all 4 tests green.
 
 - [ ] **Step 5: Commit**
@@ -1615,7 +1862,7 @@ describe('loadTodayEntry', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- lib/entries.test`
+Run: `npm run test --workspace=worker -- lib/entries.test`
 Expected: FAIL with "Cannot find module '../../src/lib/entries'"
 
 - [ ] **Step 3: Write `worker/src/lib/entries.ts`**
@@ -1658,7 +1905,7 @@ export async function loadTodayEntry(db: D1Database, userId: string): Promise<To
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm test -- lib/entries.test`
+Run: `npm run test --workspace=worker -- lib/entries.test`
 Expected: PASS — both tests green.
 
 - [ ] **Step 5: Write the failing test `worker/tests/routes/entries.test.ts`**
@@ -1748,7 +1995,7 @@ describe('POST /api/entries', () => {
 
 - [ ] **Step 6: Run test to verify it fails**
 
-Run: `npm test -- routes/entries.test`
+Run: `npm run test --workspace=worker -- routes/entries.test`
 Expected: FAIL with "Cannot find module '../../src/routes/entries'"
 
 - [ ] **Step 7: Write `worker/src/routes/entries.ts`**
@@ -1789,7 +2036,7 @@ entryRoutes.post('/', requireAuth, async (c) => {
 
 - [ ] **Step 8: Run test to verify it passes**
 
-Run: `npm test -- routes/entries.test`
+Run: `npm run test --workspace=worker -- routes/entries.test`
 Expected: PASS — all 3 tests green.
 
 - [ ] **Step 9: Commit**
@@ -1972,7 +2219,7 @@ Add `import { Hono } from 'hono';` is already present; the new tests reuse `buil
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- routes/entries.test`
+Run: `npm run test --workspace=worker -- routes/entries.test`
 Expected: FAIL — `PATCH`/reroll routes return 404 (not yet registered).
 
 - [ ] **Step 3: Append to `worker/src/routes/entries.ts`**
@@ -2052,7 +2299,7 @@ entryRoutes.post('/:id/reroll-task', requireAuth, async (c) => {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm test -- routes/entries.test`
+Run: `npm run test --workspace=worker -- routes/entries.test`
 Expected: PASS — all 8 tests in this file green.
 
 - [ ] **Step 5: Commit**
@@ -2166,7 +2413,7 @@ describe('DELETE /api/entries/:id', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- routes/entries.test`
+Run: `npm run test --workspace=worker -- routes/entries.test`
 Expected: FAIL — `GET /` and `DELETE /:id` return 404 (not yet registered).
 
 - [ ] **Step 3: Append to `worker/src/routes/entries.ts`**
@@ -2209,7 +2456,7 @@ entryRoutes.delete('/:id', requireAuth, async (c) => {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm test -- routes/entries.test`
+Run: `npm run test --workspace=worker -- routes/entries.test`
 Expected: PASS — all 12 tests in this file green.
 
 - [ ] **Step 5: Commit**
@@ -2269,7 +2516,7 @@ describe('assembled app', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- tests/index.test`
+Run: `npm run test --workspace=worker -- tests/index.test`
 Expected: FAIL with "Cannot find module '../src/index'"
 
 - [ ] **Step 3: Write `worker/src/index.ts`**
@@ -2308,12 +2555,12 @@ export type { Env };
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm test -- tests/index.test`
+Run: `npm run test --workspace=worker -- tests/index.test`
 Expected: PASS — all 3 tests green.
 
 - [ ] **Step 5: Run the full test suite**
 
-Run: `npm test`
+Run: `npm run test --workspace=worker`
 Expected: PASS — every test file from Tasks 2–13 green.
 
 - [ ] **Step 6: Commit**
@@ -2324,60 +2571,445 @@ git commit -m "feat(worker): assemble the Hono app entry point"
 ```
 
 ---
-
-## Task 14: Frontend — sign-in + first-login consent screen (rough prototype)
+## Task 14: `/shared` package — API client + types
 
 **Files:**
-- Create: `frontend/shared/config.js`
-- Create: `frontend/shared/api.js`
-- Create: `frontend/shared/base.css`
-- Create: `frontend/index.html`
-- Create: `frontend/consent.html`
-- Create: `frontend/consent.js`
+- Create: `shared/src/types.ts`
+- Create: `shared/src/api-client.ts`
+- Create: `shared/src/index.ts`
+- Create: `shared/tsconfig.json`
+- Create: `shared/vitest.config.ts`
+- Test: `shared/tests/api-client.test.ts`
 
 **Interfaces:**
-- Produces: `API_BASE` (config.js), `apiFetch(path, options)` (api.js) — consumed by every later frontend task.
-- No automated tests for the frontend per the spec (§9) — this task's verification step is running two local dev servers and checking the flow by hand in a browser.
+- Produces: `Quadrant`, `QuestionRef`, `TaskRef`, `SessionUser`, `TodayEntry`, `TimelineEntry`, `COLORS` (`shared/src/types.ts`); `createApiClient(config)`, `ApiClient`, `ApiError` (`shared/src/api-client.ts`) — consumed by every `/web` page task (15–18) and, later, by the React Native app. The client is deliberately transport-agnostic (a plain `fetch`-shaped function, optional `requestInit`, an `onUnauthorized` callback) so the web app can inject `credentials: 'include'` for cookies while a mobile app injects an `Authorization: Bearer <token>` header instead — same call sites, no rewrite needed when the mobile app is built.
 
-- [ ] **Step 1: Write `frontend/shared/config.js`**
+- [ ] **Step 1: Write `shared/tsconfig.json`**
 
-```javascript
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src", "tests"]
+}
+```
+
+- [ ] **Step 2: Write `shared/vitest.config.ts`**
+
+```typescript
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: { environment: 'node' },
+});
+```
+
+- [ ] **Step 3: Write `shared/src/types.ts`**
+
+```typescript
+export type Quadrant = 'mental' | 'physical' | 'emotional' | 'spiritual';
+
+export interface QuestionRef {
+  id: string;
+  text: string;
+  quadrant: Quadrant;
+}
+
+export interface TaskRef {
+  id: string;
+  text: string;
+  quadrant: Quadrant;
+}
+
+export interface SessionUser {
+  id: string;
+  email: string;
+  displayName: string | null;
+  consentAcceptedAt: string | null;
+  analyticsMarketingConsentAt: string | null;
+}
+
+export interface TodayEntry {
+  id: string;
+  color: string;
+  answer_text: string | null;
+  task_completed: number;
+  entry_date: string;
+  question_id: string;
+  question_text: string;
+  question_quadrant: Quadrant;
+  task_id: string | null;
+  task_text: string | null;
+  task_quadrant: Quadrant | null;
+}
+
+export interface TimelineEntry {
+  id: string;
+  user_id: string;
+  color: string;
+  question_id: string;
+  answer_text: string | null;
+  task_id: string | null;
+  task_completed: number;
+  entry_date: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export const COLORS: ReadonlyArray<{ name: string; hex: string }> = [
+  { name: 'Indigo', hex: '#34435f' },
+  { name: 'Teal', hex: '#4f8f86' },
+  { name: 'Sage', hex: '#859873' },
+  { name: 'Gold', hex: '#b79239' },
+  { name: 'Peach', hex: '#c48665' },
+  { name: 'Pink', hex: '#b85e78' },
+  { name: 'Lilac', hex: '#75658d' },
+  { name: 'Ember', hex: '#9f493d' },
+  { name: 'Tangerine', hex: '#c96f35' },
+  { name: 'Voltage', hex: '#5868a6' },
+  { name: 'Smoke', hex: '#68716d' },
+];
+```
+
+- [ ] **Step 4: Write the failing test `shared/tests/api-client.test.ts`**
+
+```typescript
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError, createApiClient } from '../src/api-client';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('createApiClient', () => {
+  it('calls getMe against the configured base URL with merged request init', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ user: { id: 'u1' } }), { status: 200 }));
+    const client = createApiClient({
+      baseUrl: 'http://api.test',
+      fetchImpl: fetchMock,
+      requestInit: { credentials: 'include' },
+    });
+
+    const result = await client.getMe();
+    expect(result.user.id).toBe('u1');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://api.test/api/me',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+  it('throws ApiError and calls onUnauthorized on a 401', async () => {
+    const onUnauthorized = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 401 }));
+    const client = createApiClient({ baseUrl: 'http://api.test', fetchImpl: fetchMock, onUnauthorized });
+
+    await expect(client.getMe()).rejects.toBeInstanceOf(ApiError);
+    expect(onUnauthorized).toHaveBeenCalled();
+  });
+
+  it('throws ApiError with the server error message on a non-2xx response', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ error: 'entry_already_exists_today' }), { status: 409 }));
+    const client = createApiClient({ baseUrl: 'http://api.test', fetchImpl: fetchMock });
+
+    await expect(client.createEntry('Teal')).rejects.toThrow('entry_already_exists_today');
+  });
+
+  it('sends an Authorization header when configured, for a bearer-token (mobile-style) caller', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const client = createApiClient({
+      baseUrl: 'http://api.test',
+      fetchImpl: fetchMock,
+      requestInit: { headers: { Authorization: 'Bearer token-123' } },
+    });
+
+    await client.deleteMe();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://api.test/api/me',
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer token-123' }) }),
+    );
+  });
+});
+```
+
+- [ ] **Step 5: Run test to verify it fails**
+
+Run: `npm run test --workspace=shared`
+Expected: FAIL with "Cannot find module '../src/api-client'"
+
+- [ ] **Step 6: Write `shared/src/api-client.ts`**
+
+```typescript
+import type { QuestionRef, SessionUser, TaskRef, TimelineEntry, TodayEntry } from './types';
+
+export interface ApiClientConfig {
+  baseUrl: string;
+  fetchImpl?: typeof fetch;
+  requestInit?: RequestInit;
+  onUnauthorized?: () => void;
+}
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export function createApiClient(config: ApiClientConfig) {
+  const fetchImpl = config.fetchImpl ?? fetch;
+
+  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const response = await fetchImpl(`${config.baseUrl}${path}`, {
+      ...config.requestInit,
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(config.requestInit?.headers ?? {}),
+        ...(init.headers ?? {}),
+      },
+    });
+
+    if (response.status === 401) {
+      config.onUnauthorized?.();
+      throw new ApiError(401, 'unauthorized');
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}) as { error?: string });
+      throw new ApiError(response.status, body.error ?? `Request failed: ${response.status}`);
+    }
+    if (response.status === 204) return undefined as T;
+    return response.json();
+  }
+
+  return {
+    getMe: () => request<{ user: SessionUser }>('/api/me'),
+    postConsent: (analyticsMarketing: boolean) =>
+      request<{ ok: true }>('/api/me/consent', {
+        method: 'POST',
+        body: JSON.stringify({ analyticsMarketing }),
+      }),
+    deleteMe: () => request<{ ok: true }>('/api/me', { method: 'DELETE' }),
+    getToday: () => request<{ entry: TodayEntry | null }>('/api/today'),
+    createEntry: (color: string) =>
+      request<{ entry: { id: string; color: string; entryDate: string; question: QuestionRef } }>('/api/entries', {
+        method: 'POST',
+        body: JSON.stringify({ color }),
+      }),
+    answerEntry: (entryId: string, answer: string) =>
+      request<{ entry: { task: TaskRef } }>(`/api/entries/${entryId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ answer }),
+      }),
+    completeTask: (entryId: string) =>
+      request<{ entry: unknown }>(`/api/entries/${entryId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ taskCompleted: true }),
+      }),
+    rerollTask: (entryId: string) =>
+      request<{ task: TaskRef }>(`/api/entries/${entryId}/reroll-task`, { method: 'POST' }),
+    listEntries: (cursor?: string | null) =>
+      request<{ entries: TimelineEntry[]; nextCursor: string | null }>(
+        `/api/entries${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+      ),
+    deleteEntry: (entryId: string) => request<{ ok: true }>(`/api/entries/${entryId}`, { method: 'DELETE' }),
+    logout: () => request<{ ok: true }>('/auth/logout', { method: 'POST' }),
+    googleStartUrl: () => `${config.baseUrl}/auth/google/start`,
+  };
+}
+
+export type ApiClient = ReturnType<typeof createApiClient>;
+```
+
+- [ ] **Step 7: Write `shared/src/index.ts`**
+
+```typescript
+export * from './types';
+export * from './api-client';
+```
+
+- [ ] **Step 8: Run test to verify it passes**
+
+Run: `npm run test --workspace=shared`
+Expected: PASS — all 4 tests green.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add shared/src shared/tests shared/tsconfig.json shared/vitest.config.ts
+git commit -m "feat(shared): add cross-platform API client and shared types"
+```
+
+---
+
+## Task 15: `/web` scaffold (Vite + React + React Router) + sign-in and consent pages
+
+**Files:**
+- Create: `web/package.json`
+- Create: `web/vite.config.ts`
+- Create: `web/tsconfig.json`
+- Create: `web/index.html`
+- Create: `web/public/_redirects`
+- Create: `web/src/main.tsx`
+- Create: `web/src/App.tsx`
+- Create: `web/src/lib/api.ts`
+- Create: `web/src/lib/useCurrentUser.ts`
+- Create: `web/src/styles/base.css`
+- Create: `web/src/pages/SignIn.tsx`
+- Create: `web/src/pages/Consent.tsx`
+
+**Interfaces:**
+- Consumes: `createApiClient`, `COLORS`, `SessionUser`, etc. from `@eve-colors/shared` (Task 14).
+- Produces: `apiClient` (a configured `ApiClient` singleton, `web/src/lib/api.ts`) and `useCurrentUser()` (a hook returning `{ user, loading, refetch }`, `web/src/lib/useCurrentUser.ts`) — consumed by every page task (16–18). React Router routes `/`, `/consent`, `/today`, `/garden`, `/account` — consumed by Tasks 16–18 to register their own pages.
+- No automated tests for the frontend per the spec (§9) — verification is running the dev servers and checking the flow by hand in a browser.
+
+- [ ] **Step 1: Write `web/package.json`**
+
+```json
+{
+  "name": "@eve-colors/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "deploy": "wrangler pages deploy dist"
+  },
+  "dependencies": {
+    "@eve-colors/shared": "*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.8.3",
+    "vite": "^5.4.0",
+    "wrangler": "^3.90.0"
+  }
+}
+```
+
+Run `npm install` again from the repo root after adding this file, so the new `web` workspace (and its dependency on `@eve-colors/shared`) gets linked.
+
+- [ ] **Step 2: Write `web/vite.config.ts`**
+
+```typescript
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  server: { port: 8788 },
+});
+```
+
+- [ ] **Step 3: Write `web/tsconfig.json`**
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src"]
+}
+```
+
+- [ ] **Step 4: Write `web/index.html`**
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Eve Colors</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+```
+
+- [ ] **Step 5: Write `web/public/_redirects`**
+
+Cloudflare Pages needs this so a hard navigation (or reload) to a client-side route like `/today` still serves `index.html` and lets React Router take over.
+
+```
+/*    /index.html   200
+```
+
+- [ ] **Step 6: Write `web/src/lib/api.ts`**
+
+```typescript
+import { createApiClient } from '@eve-colors/shared';
+
 // Rough prototype — hardcode dev values here. Update for each deploy target
 // (local dev vs. the real api.<domain> once DNS is live).
 export const API_BASE = 'http://localhost:8787';
 export const POSTHOG_EU_PROJECT_KEY = 'REPLACE_WITH_POSTHOG_PUBLIC_KEY';
+
+export const apiClient = createApiClient({
+  baseUrl: API_BASE,
+  requestInit: { credentials: 'include' },
+  onUnauthorized: () => {
+    if (window.location.pathname !== '/') window.location.href = '/';
+  },
+});
 ```
 
-- [ ] **Step 2: Write `frontend/shared/api.js`**
+- [ ] **Step 7: Write `web/src/lib/useCurrentUser.ts`**
 
-```javascript
-import { API_BASE } from './config.js';
+```typescript
+import { useCallback, useEffect, useState } from 'react';
+import type { SessionUser } from '@eve-colors/shared';
+import { apiClient } from './api';
 
-export async function apiFetch(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
-  if (response.status === 401) {
-    window.location.href = '/index.html';
-    throw new Error('Not signed in.');
-  }
-  return response;
-}
+export function useCurrentUser() {
+  const [user, setUser] = useState<SessionUser | null | undefined>(undefined);
 
-export async function getCurrentUser() {
-  const res = await apiFetch('/api/me');
-  if (!res.ok) return null;
-  const body = await res.json();
-  return body.user;
+  const refetch = useCallback(async () => {
+    try {
+      const { user: fetchedUser } = await apiClient.getMe();
+      setUser(fetchedUser);
+    } catch {
+      setUser(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  return { user, loading: user === undefined, refetch };
 }
 ```
 
-- [ ] **Step 3: Write `frontend/shared/base.css`**
+(`user === undefined` means "still loading"; `null` means "confirmed signed out.")
+
+- [ ] **Step 8: Write `web/src/styles/base.css`**
 
 Intentionally minimal — this is a functional prototype, not the final design.
 
@@ -2401,7 +3033,8 @@ button.primary {
   background: #222;
   color: #fff;
 }
-textarea, input[type="text"] {
+textarea,
+input[type='text'] {
   font: inherit;
   width: 100%;
   box-sizing: border-box;
@@ -2419,7 +3052,7 @@ textarea, input[type="text"] {
   background: #fff;
   cursor: pointer;
 }
-.color-swatch span.dot {
+.color-swatch .dot {
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -2435,356 +3068,464 @@ textarea, input[type="text"] {
 }
 ```
 
-- [ ] **Step 4: Write `frontend/index.html`**
+- [ ] **Step 9: Write `web/src/pages/SignIn.tsx`**
 
-```html
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Eve Colors</title>
-  <link rel="stylesheet" href="/shared/base.css" />
-</head>
-<body>
-  <h1>Eve Colors</h1>
-  <p>A daily wellness check-in. Not a medical tool — see the note below.</p>
-  <a class="primary" href="http://localhost:8787/auth/google/start" style="display:inline-block; padding:10px 18px; border-radius:8px; background:#222; color:#fff; text-decoration:none;">
-    Sign in with Google
-  </a>
-  <p class="notice">
-    Eve Colors is a wellness self-reflection tool. It does not provide medical advice, diagnosis, or treatment.
-    If you are in the U.S. and need immediate support, call or text 988. If you are in immediate danger, contact local emergency services.
-  </p>
-</body>
-</html>
-```
+```tsx
+import { apiClient } from '../lib/api';
 
-(The sign-in link's `href` is hardcoded to the local Worker URL to match `config.js`'s `API_BASE` for this prototype — update alongside `config.js` for other environments.)
+const SUPPORT_SAFETY_NOTICE =
+  'Eve Colors is a wellness self-reflection tool. It does not provide medical advice, diagnosis, or treatment. ' +
+  'If you are in the U.S. and need immediate support, call or text 988. If you are in immediate danger, contact local emergency services.';
 
-- [ ] **Step 5: Write `frontend/consent.html`**
-
-```html
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Eve Colors — Before you start</title>
-  <link rel="stylesheet" href="/shared/base.css" />
-</head>
-<body>
-  <h1>Before you start</h1>
-  <div class="notice">
-    <p><strong>Eve Colors is a wellness tool, not a medical device.</strong> It does not provide medical advice, diagnosis, or treatment.</p>
-    <p>We store your Google email and display name to run your account, plus the entries you write. Deleting your account permanently removes all of it.</p>
-  </div>
-  <p><label><input type="checkbox" id="analytics-consent" /> I agree to analytics tracking and to being contacted by email for marketing purposes. Eve Colors will never sell my email address.</label></p>
-  <button class="primary" id="continue-button">I understand, continue</button>
-  <p id="status" role="status"></p>
-  <script type="module" src="/consent.js"></script>
-</body>
-</html>
-```
-
-- [ ] **Step 6: Write `frontend/consent.js`**
-
-```javascript
-import { apiFetch, getCurrentUser } from './shared/api.js';
-
-const status = document.getElementById('status');
-
-const user = await getCurrentUser();
-if (user && user.consentAcceptedAt) {
-  window.location.href = '/today.html';
+export function SignIn() {
+  return (
+    <div>
+      <h1>Eve Colors</h1>
+      <p>A daily wellness check-in. Not a medical tool — see the note below.</p>
+      <a className="primary" href={apiClient.googleStartUrl()} style={{ display: 'inline-block', padding: '10px 18px', borderRadius: 8, background: '#222', color: '#fff', textDecoration: 'none' }}>
+        Sign in with Google
+      </a>
+      <p className="notice">{SUPPORT_SAFETY_NOTICE}</p>
+    </div>
+  );
 }
-
-document.getElementById('continue-button').addEventListener('click', async () => {
-  const analyticsMarketing = document.getElementById('analytics-consent').checked;
-  status.textContent = 'Saving…';
-  const res = await apiFetch('/api/me/consent', {
-    method: 'POST',
-    body: JSON.stringify({ analyticsMarketing }),
-  });
-  if (!res.ok) {
-    status.textContent = 'Something went wrong. Please try again.';
-    return;
-  }
-  window.location.href = '/today.html';
-});
 ```
 
-- [ ] **Step 7: Manual verification**
+- [ ] **Step 10: Write `web/src/pages/Consent.tsx`**
 
-Run in two terminals: `npm run dev:worker` and `npm run dev:frontend`.
-Open `http://localhost:8788/index.html`, click "Sign in with Google" — Google's real consent screen should appear (this requires `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` to be set in `worker/.dev.vars`; if they aren't yet, confirm instead that the click redirects to `accounts.google.com` with a `400: redirect_uri_mismatch` or similar Google-side error, which still proves the Worker-side redirect logic fired correctly).
-Expected: browser navigates to `accounts.google.com`.
+```tsx
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { apiClient } from '../lib/api';
+import { useCurrentUser } from '../lib/useCurrentUser';
 
-- [ ] **Step 8: Commit**
+export function Consent() {
+  const { user, loading, refetch } = useCurrentUser();
+  const navigate = useNavigate();
+  const [analyticsConsent, setAnalyticsConsent] = useState(false);
+  const [status, setStatus] = useState('');
+
+  useEffect(() => {
+    if (!loading && user?.consentAcceptedAt) navigate('/today', { replace: true });
+  }, [loading, user, navigate]);
+
+  if (!loading && user?.consentAcceptedAt) return null;
+
+  async function handleContinue() {
+    setStatus('Saving…');
+    try {
+      await apiClient.postConsent(analyticsConsent);
+      await refetch();
+      navigate('/today');
+    } catch {
+      setStatus('Something went wrong. Please try again.');
+    }
+  }
+
+  return (
+    <div>
+      <h1>Before you start</h1>
+      <div className="notice">
+        <p>
+          <strong>Eve Colors is a wellness tool, not a medical device.</strong> It does not provide medical
+          advice, diagnosis, or treatment.
+        </p>
+        <p>
+          We store your Google email and display name to run your account, plus the entries you write.
+          Deleting your account permanently removes all of it.
+        </p>
+      </div>
+      <p>
+        <label>
+          <input
+            type="checkbox"
+            checked={analyticsConsent}
+            onChange={(event) => setAnalyticsConsent(event.target.checked)}
+          />{' '}
+          I agree to analytics tracking and to being contacted by email for marketing purposes. Eve Colors will
+          never sell my email address.
+        </label>
+      </p>
+      <button className="primary" onClick={() => void handleContinue()}>
+        I understand, continue
+      </button>
+      <p role="status">{status}</p>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 11: Write `web/src/App.tsx`**
+
+```tsx
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { SignIn } from './pages/SignIn';
+import { Consent } from './pages/Consent';
+
+export function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<SignIn />} />
+        <Route path="/consent" element={<Consent />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+```
+
+(Task 16 adds the `/today` route, Task 17 adds `/garden`, Task 18 adds `/account` — each task appends one `<Route>` to this file rather than redefining it.)
+
+- [ ] **Step 12: Write `web/src/main.tsx`**
+
+```tsx
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { App } from './App';
+import './styles/base.css';
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
+```
+
+- [ ] **Step 13: Install and verify the dev server boots**
+
+Run: `npm install` (from the repo root, to link the new `web` workspace), then `npm run dev:web`.
+Expected: Vite starts on `http://localhost:8788` with no errors; opening it in a browser shows the "Eve Colors" sign-in page.
+
+- [ ] **Step 14: Manual verification of the sign-in flow**
+
+With both `npm run dev:worker` and `npm run dev:web` running, open `http://localhost:8788`, click "Sign in with Google" — this should navigate to `accounts.google.com` (requires `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `worker/.dev.vars`; if unset, confirm instead that the click starts a navigation toward `accounts.google.com` that Google then rejects with a redirect-URI error — that still proves the Worker-side redirect fired).
+
+- [ ] **Step 15: Commit**
 
 ```bash
-git add frontend/shared/config.js frontend/shared/api.js frontend/shared/base.css \
-  frontend/index.html frontend/consent.html frontend/consent.js
-git commit -m "feat(frontend): add sign-in landing and first-login consent screen (rough prototype)"
+git add web/package.json web/vite.config.ts web/tsconfig.json web/index.html web/public/_redirects \
+  web/src/main.tsx web/src/App.tsx web/src/lib/api.ts web/src/lib/useCurrentUser.ts \
+  web/src/styles/base.css web/src/pages/SignIn.tsx web/src/pages/Consent.tsx package-lock.json
+git commit -m "feat(web): scaffold Vite/React/React Router app with sign-in and consent pages"
 ```
 
 ---
 
-## Task 15: Frontend — today check-in flow
+## Task 16: Today check-in flow (React)
 
 **Files:**
-- Create: `frontend/today.html`
-- Create: `frontend/today.js`
+- Create: `web/src/pages/Today.tsx`
+- Modify: `web/src/App.tsx`
 
 **Interfaces:**
-- Consumes: `apiFetch`, `getCurrentUser` (Task 14).
+- Consumes: `apiClient`, `useCurrentUser` (Task 15); `TodayEntry`, `QuestionRef`, `TaskRef` types from `@eve-colors/shared` (Task 14).
 
-- [ ] **Step 1: Write `frontend/today.html`**
+- [ ] **Step 1: Write `web/src/pages/Today.tsx`**
 
-```html
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Eve Colors — Today</title>
-  <link rel="stylesheet" href="/shared/base.css" />
-</head>
-<body>
-  <h1>Today</h1>
-  <nav><a href="/garden.html">My Garden</a> · <a href="/account.html">Account</a></nav>
-  <div id="app"></div>
-  <p class="notice">
-    Eve Colors is a wellness self-reflection tool. It does not provide medical advice, diagnosis, or treatment.
-    If you are in the U.S. and need immediate support, call or text 988. If you are in immediate danger, contact local emergency services.
-  </p>
-  <script type="module" src="/today.js"></script>
-</body>
-</html>
-```
+```tsx
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { COLORS, type TodayEntry } from '@eve-colors/shared';
+import { apiClient } from '../lib/api';
+import { useCurrentUser } from '../lib/useCurrentUser';
 
-- [ ] **Step 2: Write `frontend/today.js`**
+type Stage =
+  | { name: 'loading' }
+  | { name: 'pickColor' }
+  | { name: 'question'; entryId: string; questionText: string }
+  | { name: 'task'; entryId: string; taskText: string }
+  | { name: 'done' };
 
-```javascript
-import { apiFetch, getCurrentUser } from './shared/api.js';
+const SUPPORT_SAFETY_NOTICE =
+  'Eve Colors is a wellness self-reflection tool. It does not provide medical advice, diagnosis, or treatment. ' +
+  'If you are in the U.S. and need immediate support, call or text 988. If you are in immediate danger, contact local emergency services.';
 
-const COLORS = [
-  ['Indigo', '#34435f'], ['Teal', '#4f8f86'], ['Sage', '#859873'], ['Gold', '#b79239'],
-  ['Peach', '#c48665'], ['Pink', '#b85e78'], ['Lilac', '#75658d'], ['Ember', '#9f493d'],
-  ['Tangerine', '#c96f35'], ['Voltage', '#5868a6'], ['Smoke', '#68716d'],
-];
-
-const app = document.getElementById('app');
-
-const user = await getCurrentUser();
-if (!user) {
-  window.location.href = '/index.html';
-} else if (!user.consentAcceptedAt) {
-  window.location.href = '/consent.html';
-} else {
-  await render();
+function stageFromTodayEntry(entry: TodayEntry | null): Stage {
+  if (!entry) return { name: 'pickColor' };
+  if (entry.answer_text === null) return { name: 'question', entryId: entry.id, questionText: entry.question_text };
+  if (!entry.task_completed) return { name: 'task', entryId: entry.id, taskText: entry.task_text ?? '' };
+  return { name: 'done' };
 }
 
-async function render() {
-  const res = await apiFetch('/api/today');
-  const { entry } = await res.json();
+export function Today() {
+  const { user, loading } = useCurrentUser();
+  const navigate = useNavigate();
+  const [stage, setStage] = useState<Stage>({ name: 'loading' });
+  const [answer, setAnswer] = useState('');
+  const [formStatus, setFormStatus] = useState('');
 
-  if (!entry) return renderColorPicker();
-  if (entry.answer_text === null) return renderQuestion(entry);
-  if (!entry.task_completed) return renderTask(entry);
-  return renderDone(entry);
-}
-
-function renderColorPicker() {
-  app.innerHTML = `
-    <p>Pick the color that matches how you feel today.</p>
-    <div id="colors" style="display:flex; flex-wrap:wrap; gap:10px;"></div>
-  `;
-  const container = document.getElementById('colors');
-  for (const [name, hex] of COLORS) {
-    const button = document.createElement('button');
-    button.className = 'color-swatch';
-    button.innerHTML = `<span class="dot" style="background:${hex}"></span>${name}`;
-    button.addEventListener('click', () => startEntry(name));
-    container.appendChild(button);
-  }
-}
-
-async function startEntry(color) {
-  const res = await apiFetch('/api/entries', { method: 'POST', body: JSON.stringify({ color }) });
-  if (!res.ok) {
-    app.innerHTML = `<p>Could not start today's entry. Please refresh and try again.</p>`;
-    return;
-  }
-  const { entry } = await res.json();
-  renderQuestion({ id: entry.id, question_text: entry.question.text });
-}
-
-function renderQuestion(entry) {
-  app.innerHTML = `
-    <p><strong>${entry.question_text}</strong></p>
-    <textarea id="answer" rows="6" maxlength="5000"></textarea>
-    <p><button class="primary" id="save-answer">Save my reflection</button></p>
-    <p id="status"></p>
-  `;
-  document.getElementById('save-answer').addEventListener('click', async () => {
-    const answer = document.getElementById('answer').value.trim();
-    if (!answer) {
-      document.getElementById('status').textContent = 'Write anything that feels true for you.';
+  useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      navigate('/', { replace: true });
       return;
     }
-    const res = await apiFetch(`/api/entries/${entry.id}`, { method: 'PATCH', body: JSON.stringify({ answer }) });
-    const body = await res.json();
-    renderTask({ id: entry.id, task_text: body.entry.task.text });
-  });
-}
+    if (!user.consentAcceptedAt) {
+      navigate('/consent', { replace: true });
+      return;
+    }
+    void apiClient.getToday().then(({ entry }) => setStage(stageFromTodayEntry(entry)));
+  }, [loading, user, navigate]);
 
-function renderTask(entry) {
-  app.innerHTML = `
-    <p>One small thing for today:</p>
-    <p><strong>${entry.task_text}</strong></p>
-    <p>
-      <button class="primary" id="complete-task">I did it</button>
-      <button id="reroll-task">Give me another idea</button>
-    </p>
-  `;
-  document.getElementById('reroll-task').addEventListener('click', async () => {
-    const res = await apiFetch(`/api/entries/${entry.id}/reroll-task`, { method: 'POST' });
-    const body = await res.json();
-    renderTask({ id: entry.id, task_text: body.task.text });
-  });
-  document.getElementById('complete-task').addEventListener('click', async () => {
-    await apiFetch(`/api/entries/${entry.id}`, { method: 'PATCH', body: JSON.stringify({ taskCompleted: true }) });
-    renderDone(entry);
-  });
-}
-
-function renderDone() {
-  app.innerHTML = `
-    <p>You showed up for yourself today. 🌸</p>
-    <p><a href="/garden.html">View My Garden</a></p>
-  `;
-}
-```
-
-- [ ] **Step 3: Manual verification**
-
-With both dev servers running and a session cookie present (after completing Task 14's sign-in flow against a real or test Google OAuth client), open `http://localhost:8788/today.html`.
-Expected: color picker renders; clicking a color shows a question; submitting an answer shows a task; "Give me another idea" swaps the task; "I did it" shows the done screen; reloading the page after completion still shows the done screen (via `GET /api/today`); reloading the page again to try creating a second entry the same day should be prevented (no picker shown).
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add frontend/today.html frontend/today.js
-git commit -m "feat(frontend): add today check-in flow (rough prototype)"
-```
-
----
-
-## Task 16: Frontend — timeline ("My Garden")
-
-**Files:**
-- Create: `frontend/garden.html`
-- Create: `frontend/garden.js`
-
-**Interfaces:**
-- Consumes: `apiFetch`, `getCurrentUser` (Task 14).
-
-- [ ] **Step 1: Write `frontend/garden.html`**
-
-```html
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Eve Colors — My Garden</title>
-  <link rel="stylesheet" href="/shared/base.css" />
-</head>
-<body>
-  <h1>My Garden</h1>
-  <nav><a href="/today.html">Today</a> · <a href="/account.html">Account</a></nav>
-  <div id="app"></div>
-  <script type="module" src="/garden.js"></script>
-</body>
-</html>
-```
-
-- [ ] **Step 2: Write `frontend/garden.js`**
-
-```javascript
-import { apiFetch, getCurrentUser } from './shared/api.js';
-
-const app = document.getElementById('app');
-let cursor = null;
-
-const user = await getCurrentUser();
-if (!user) {
-  window.location.href = '/index.html';
-} else {
-  app.innerHTML = '<ul id="entries" style="list-style:none; padding:0;"></ul><button id="load-more">Load more</button>';
-  document.getElementById('load-more').addEventListener('click', loadMore);
-  await loadMore();
-}
-
-async function loadMore() {
-  const url = cursor ? `/api/entries?cursor=${encodeURIComponent(cursor)}` : '/api/entries';
-  const res = await apiFetch(url);
-  const body = await res.json();
-  cursor = body.nextCursor;
-  const list = document.getElementById('entries');
-  for (const entry of body.entries) {
-    const item = document.createElement('li');
-    item.style.cssText = 'border:1px solid #ccc; border-radius:8px; padding:12px; margin-bottom:8px;';
-    item.innerHTML = `
-      <strong>${entry.color}</strong> — ${entry.entry_date}
-      <p>${entry.answer_text ?? '(not answered)'}</p>
-      <p>Task: ${entry.task_completed ? 'completed' : 'not completed'}</p>
-      <button data-id="${entry.id}" class="delete-entry">Delete</button>
-    `;
-    item.querySelector('.delete-entry').addEventListener('click', () => deleteEntry(entry.id, item));
-    list.appendChild(item);
+  async function pickColor(color: string) {
+    const { entry } = await apiClient.createEntry(color);
+    setStage({ name: 'question', entryId: entry.id, questionText: entry.question.text });
   }
-  document.getElementById('load-more').style.display = cursor ? 'inline-block' : 'none';
-}
 
-async function deleteEntry(id, item) {
-  if (!window.confirm('Delete this Eve Moment? This cannot be undone.')) return;
-  const res = await apiFetch(`/api/entries/${id}`, { method: 'DELETE' });
-  if (res.ok) item.remove();
+  async function submitAnswer(entryId: string) {
+    const trimmed = answer.trim();
+    if (!trimmed) {
+      setFormStatus('Write anything that feels true for you.');
+      return;
+    }
+    const { entry } = await apiClient.answerEntry(entryId, trimmed);
+    setStage({ name: 'task', entryId, taskText: entry.task.text });
+  }
+
+  async function reroll(entryId: string) {
+    const { task } = await apiClient.rerollTask(entryId);
+    setStage({ name: 'task', entryId, taskText: task.text });
+  }
+
+  async function completeTask(entryId: string) {
+    await apiClient.completeTask(entryId);
+    setStage({ name: 'done' });
+  }
+
+  return (
+    <div>
+      <h1>Today</h1>
+      <nav>
+        <a href="/garden">My Garden</a> · <a href="/account">Account</a>
+      </nav>
+
+      {stage.name === 'loading' && <p>Loading…</p>}
+
+      {stage.name === 'pickColor' && (
+        <>
+          <p>Pick the color that matches how you feel today.</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {COLORS.map(({ name, hex }) => (
+              <button key={name} className="color-swatch" onClick={() => void pickColor(name)}>
+                <span className="dot" style={{ background: hex }} />
+                {name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {stage.name === 'question' && (
+        <>
+          <p>
+            <strong>{stage.questionText}</strong>
+          </p>
+          <textarea rows={6} maxLength={5000} value={answer} onChange={(event) => setAnswer(event.target.value)} />
+          <p>
+            <button className="primary" onClick={() => void submitAnswer(stage.entryId)}>
+              Save my reflection
+            </button>
+          </p>
+          <p role="status">{formStatus}</p>
+        </>
+      )}
+
+      {stage.name === 'task' && (
+        <>
+          <p>One small thing for today:</p>
+          <p>
+            <strong>{stage.taskText}</strong>
+          </p>
+          <p>
+            <button className="primary" onClick={() => void completeTask(stage.entryId)}>
+              I did it
+            </button>{' '}
+            <button onClick={() => void reroll(stage.entryId)}>Give me another idea</button>
+          </p>
+        </>
+      )}
+
+      {stage.name === 'done' && (
+        <>
+          <p>You showed up for yourself today. 🌸</p>
+          <p>
+            <a href="/garden">View My Garden</a>
+          </p>
+        </>
+      )}
+
+      <p className="notice">{SUPPORT_SAFETY_NOTICE}</p>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Add the route in `web/src/App.tsx`**
+
+```tsx
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { SignIn } from './pages/SignIn';
+import { Consent } from './pages/Consent';
+import { Today } from './pages/Today';
+
+export function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<SignIn />} />
+        <Route path="/consent" element={<Consent />} />
+        <Route path="/today" element={<Today />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
 }
 ```
 
 - [ ] **Step 3: Manual verification**
 
-After creating at least one entry via `today.html`, open `http://localhost:8788/garden.html`.
-Expected: the entry appears in the list with its color, date, answer, and task status; "Delete" removes it after confirmation and the item disappears from the page.
+With both dev servers running and a session cookie present (after completing Task 15's sign-in flow against a real or test Google OAuth client), open `http://localhost:8788/today`.
+Expected: color picker renders; clicking a color shows a question; submitting an answer shows a task; "Give me another idea" swaps the task; "I did it" shows the done screen; reloading the page after completion still shows the done screen (via `GET /api/today`); a second attempt to start an entry the same day is prevented (no picker shown, since `getToday()` already returns today's entry).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add frontend/garden.html frontend/garden.js
-git commit -m "feat(frontend): add My Garden timeline (rough prototype)"
+git add web/src/pages/Today.tsx web/src/App.tsx
+git commit -m "feat(web): add today check-in flow (rough prototype)"
 ```
 
 ---
 
-## Task 17: Frontend — account/privacy page + PostHog EU loader
+## Task 17: Garden timeline (React)
 
 **Files:**
-- Create: `frontend/account.html`
-- Create: `frontend/account.js`
-- Create: `frontend/shared/posthog.js`
-- Modify: `frontend/today.js`, `frontend/garden.js` (wire in the PostHog loader)
+- Create: `web/src/pages/Garden.tsx`
+- Modify: `web/src/App.tsx`
 
 **Interfaces:**
-- Consumes: `apiFetch`, `getCurrentUser` (Task 14); `POSTHOG_EU_PROJECT_KEY` (Task 14's `config.js`).
+- Consumes: `apiClient`, `useCurrentUser` (Task 15); `TimelineEntry` type from `@eve-colors/shared` (Task 14).
+
+- [ ] **Step 1: Write `web/src/pages/Garden.tsx`**
+
+```tsx
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import type { TimelineEntry } from '@eve-colors/shared';
+import { apiClient } from '../lib/api';
+import { useCurrentUser } from '../lib/useCurrentUser';
+
+export function Garden() {
+  const { user, loading } = useCurrentUser();
+  const navigate = useNavigate();
+  const [entries, setEntries] = useState<TimelineEntry[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      navigate('/', { replace: true });
+      return;
+    }
+    void loadMore(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user]);
+
+  async function loadMore(fromCursor: string | null) {
+    const page = await apiClient.listEntries(fromCursor);
+    setEntries((existing) => [...existing, ...page.entries]);
+    setCursor(page.nextCursor);
+    setHasLoadedOnce(true);
+  }
+
+  async function deleteEntry(id: string) {
+    if (!window.confirm('Delete this Eve Moment? This cannot be undone.')) return;
+    await apiClient.deleteEntry(id);
+    setEntries((existing) => existing.filter((entry) => entry.id !== id));
+  }
+
+  return (
+    <div>
+      <h1>My Garden</h1>
+      <nav>
+        <a href="/today">Today</a> · <a href="/account">Account</a>
+      </nav>
+      {!hasLoadedOnce && <p>Loading…</p>}
+      <ul style={{ listStyle: 'none', padding: 0 }}>
+        {entries.map((entry) => (
+          <li key={entry.id} style={{ border: '1px solid #ccc', borderRadius: 8, padding: 12, marginBottom: 8 }}>
+            <strong>{entry.color}</strong> — {entry.entry_date}
+            <p>{entry.answer_text ?? '(not answered)'}</p>
+            <p>Task: {entry.task_completed ? 'completed' : 'not completed'}</p>
+            <button onClick={() => void deleteEntry(entry.id)}>Delete</button>
+          </li>
+        ))}
+      </ul>
+      {cursor && <button onClick={() => void loadMore(cursor)}>Load more</button>}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Add the route in `web/src/App.tsx`**
+
+```tsx
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { SignIn } from './pages/SignIn';
+import { Consent } from './pages/Consent';
+import { Today } from './pages/Today';
+import { Garden } from './pages/Garden';
+
+export function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<SignIn />} />
+        <Route path="/consent" element={<Consent />} />
+        <Route path="/today" element={<Today />} />
+        <Route path="/garden" element={<Garden />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+```
+
+- [ ] **Step 3: Manual verification**
+
+After creating at least one entry via `/today`, open `http://localhost:8788/garden`.
+Expected: the entry appears in the list with its color, date, answer, and task status; "Delete" removes it after confirmation and the item disappears from the page; if there are more than 20 entries, "Load more" fetches the next page.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add web/src/pages/Garden.tsx web/src/App.tsx
+git commit -m "feat(web): add My Garden timeline (rough prototype)"
+```
+
+---
+
+## Task 18: Account/privacy page + consent-gated PostHog EU loader
+
+**Files:**
+- Create: `web/src/pages/Account.tsx`
+- Create: `web/src/lib/posthog.ts`
+- Modify: `web/src/App.tsx`, `web/src/pages/Today.tsx`, `web/src/pages/Garden.tsx`
+
+**Interfaces:**
+- Consumes: `apiClient`, `useCurrentUser`, `POSTHOG_EU_PROJECT_KEY` (Task 15).
 - Produces: `loadPostHogIfConsented(user)`.
 
-- [ ] **Step 1: Write `frontend/shared/posthog.js`**
+- [ ] **Step 1: Write `web/src/lib/posthog.ts`**
 
-```javascript
-import { POSTHOG_EU_PROJECT_KEY } from './config.js';
+```typescript
+import type { SessionUser } from '@eve-colors/shared';
+import { POSTHOG_EU_PROJECT_KEY } from './api';
 
 let loaded = false;
 
-export function loadPostHogIfConsented(user) {
+export function loadPostHogIfConsented(user: SessionUser | null | undefined) {
   if (loaded || !user || !user.analyticsMarketingConsentAt) return;
   loaded = true;
 
@@ -2798,104 +3539,140 @@ export function loadPostHogIfConsented(user) {
 }
 ```
 
-(This is the standard PostHog snippet loader, parameterized with the EU host and the project key from `config.js`, gated entirely behind the `analyticsMarketingConsentAt` check.)
+(Standard PostHog snippet loader, parameterized with the EU host and the project key, gated entirely behind `analyticsMarketingConsentAt`.)
 
-- [ ] **Step 2: Write `frontend/account.html`**
+- [ ] **Step 2: Write `web/src/pages/Account.tsx`**
 
-```html
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Eve Colors — Account</title>
-  <link rel="stylesheet" href="/shared/base.css" />
-</head>
-<body>
-  <h1>Account &amp; Privacy</h1>
-  <nav><a href="/today.html">Today</a> · <a href="/garden.html">My Garden</a></nav>
-  <div id="app"></div>
-  <script type="module" src="/account.js"></script>
-</body>
-</html>
-```
+```tsx
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { apiClient } from '../lib/api';
+import { useCurrentUser } from '../lib/useCurrentUser';
 
-- [ ] **Step 3: Write `frontend/account.js`**
+export function Account() {
+  const { user, loading, refetch } = useCurrentUser();
+  const navigate = useNavigate();
+  const [analyticsConsent, setAnalyticsConsent] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [status, setStatus] = useState('');
 
-```javascript
-import { apiFetch, getCurrentUser } from './shared/api.js';
+  useEffect(() => {
+    if (!loading && !user) navigate('/', { replace: true });
+  }, [loading, user, navigate]);
 
-const app = document.getElementById('app');
+  if (!loading && !user) return null;
 
-const user = await getCurrentUser();
-if (!user) {
-  window.location.href = '/index.html';
-} else {
-  render(user);
-}
+  const analyticsChecked = analyticsConsent || Boolean(user?.analyticsMarketingConsentAt);
 
-function render(user) {
-  app.innerHTML = `
-    <p>Signed in as <strong>${user.email}</strong></p>
-    <p><label><input type="checkbox" id="analytics-consent" ${user.analyticsMarketingConsentAt ? 'checked' : ''} />
-      I agree to analytics tracking and to being contacted by email for marketing purposes. Eve Colors will never sell my email address.
-    </label></p>
-    <p><button id="save-consent">Save</button></p>
-    <hr />
-    <h2>Delete my account</h2>
-    <p>This permanently removes your account and every Eve Moment you've saved. Type DELETE to confirm.</p>
-    <input type="text" id="delete-confirm" />
-    <p><button id="delete-account">Delete My Account</button></p>
-    <p id="status"></p>
-  `;
+  async function saveConsent() {
+    await apiClient.postConsent(analyticsChecked);
+    await refetch();
+    setStatus('Saved.');
+  }
 
-  document.getElementById('save-consent').addEventListener('click', async () => {
-    const analyticsMarketing = document.getElementById('analytics-consent').checked;
-    await apiFetch('/api/me/consent', { method: 'POST', body: JSON.stringify({ analyticsMarketing }) });
-    document.getElementById('status').textContent = 'Saved.';
-  });
-
-  document.getElementById('delete-account').addEventListener('click', async () => {
-    if (document.getElementById('delete-confirm').value !== 'DELETE') {
-      document.getElementById('status').textContent = 'Type DELETE to confirm.';
+  async function deleteAccount() {
+    if (deleteConfirmText !== 'DELETE') {
+      setStatus('Type DELETE to confirm.');
       return;
     }
-    const res = await apiFetch('/api/me', { method: 'DELETE' });
-    if (res.ok) window.location.href = '/index.html';
-  });
+    await apiClient.deleteMe();
+    navigate('/');
+  }
+
+  if (!user) return <p>Loading…</p>;
+
+  return (
+    <div>
+      <h1>Account &amp; Privacy</h1>
+      <nav>
+        <a href="/today">Today</a> · <a href="/garden">My Garden</a>
+      </nav>
+      <p>
+        Signed in as <strong>{user.email}</strong>
+      </p>
+      <p>
+        <label>
+          <input
+            type="checkbox"
+            checked={analyticsChecked}
+            onChange={(event) => setAnalyticsConsent(event.target.checked)}
+          />{' '}
+          I agree to analytics tracking and to being contacted by email for marketing purposes. Eve Colors will
+          never sell my email address.
+        </label>
+      </p>
+      <p>
+        <button onClick={() => void saveConsent()}>Save</button>
+      </p>
+      <hr />
+      <h2>Delete my account</h2>
+      <p>This permanently removes your account and every Eve Moment you've saved. Type DELETE to confirm.</p>
+      <input type="text" value={deleteConfirmText} onChange={(event) => setDeleteConfirmText(event.target.value)} />
+      <p>
+        <button onClick={() => void deleteAccount()}>Delete My Account</button>
+      </p>
+      <p role="status">{status}</p>
+    </div>
+  );
 }
 ```
 
-- [ ] **Step 4: Wire the PostHog loader into `today.js` and `garden.js`**
+- [ ] **Step 3: Add the route in `web/src/App.tsx`**
 
-In `frontend/today.js`, add near the top:
+```tsx
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { SignIn } from './pages/SignIn';
+import { Consent } from './pages/Consent';
+import { Today } from './pages/Today';
+import { Garden } from './pages/Garden';
+import { Account } from './pages/Account';
 
-```javascript
-import { loadPostHogIfConsented } from './shared/posthog.js';
+export function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<SignIn />} />
+        <Route path="/consent" element={<Consent />} />
+        <Route path="/today" element={<Today />} />
+        <Route path="/garden" element={<Garden />} />
+        <Route path="/account" element={<Account />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
 ```
 
-Immediately after the existing `const user = await getCurrentUser();` block resolves to a signed-in user (right before `await render();`), add:
+- [ ] **Step 4: Wire the PostHog loader into `Today.tsx` and `Garden.tsx`**
 
-```javascript
+In `web/src/pages/Today.tsx`, add to the imports:
+
+```tsx
+import { loadPostHogIfConsented } from '../lib/posthog';
+```
+
+Inside the existing `useEffect` in `Today.tsx`, right after the `if (!user.consentAcceptedAt) { ... return; }` check and before the `void apiClient.getToday()...` line, add:
+
+```tsx
 loadPostHogIfConsented(user);
 ```
 
-Make the identical two edits in `frontend/garden.js` (import + call right after `const user = await getCurrentUser();` resolves to a non-null user, before the entries are loaded).
+Make the identical two edits in `web/src/pages/Garden.tsx` (import, then call `loadPostHogIfConsented(user)` inside its `useEffect`, right after the `if (!user) { ...; return; }` check).
 
 - [ ] **Step 5: Manual verification**
 
-Open `http://localhost:8788/account.html` while signed in. Check the analytics checkbox, click Save, reload the page — checkbox should stay checked. Open `today.html` and confirm (via browser devtools' Network tab) that a request to `eu.i.posthog.com` fires. Uncheck the box on `account.html`, reload `today.html`, and confirm no PostHog request fires. Then test account deletion: type "DELETE", click "Delete My Account", confirm it redirects to `index.html` and that signing in again creates a brand-new account (no leftover entries).
+Open `http://localhost:8788/account` while signed in. Check the analytics checkbox, click Save, reload the page — checkbox should stay checked. Open `/today` and confirm (via browser devtools' Network tab) that a request to `eu.i.posthog.com` fires. Uncheck the box on `/account`, reload `/today`, and confirm no PostHog request fires. Then test account deletion: type "DELETE", click "Delete My Account", confirm it redirects to `/` and that signing in again creates a brand-new account (no leftover entries).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add frontend/account.html frontend/account.js frontend/shared/posthog.js \
-  frontend/today.js frontend/garden.js
-git commit -m "feat(frontend): add account/privacy page and consent-gated PostHog EU loader"
+git add web/src/pages/Account.tsx web/src/lib/posthog.ts web/src/App.tsx web/src/pages/Today.tsx web/src/pages/Garden.tsx
+git commit -m "feat(web): add account/privacy page and consent-gated PostHog EU loader"
 ```
 
 ---
 
-## Task 18: Deployment config finalization
+## Task 19: Deployment config finalization
 
 **Files:**
 - Create: `worker/.dev.vars.example`
@@ -2916,14 +3693,16 @@ Instruct the developer running this locally to copy it: `cp worker/.dev.vars.exa
 
 - [ ] **Step 2: Update `README.md`'s "Status" section**
 
-Replace the existing `## Status` section (currently reading "Design is complete and approved; implementation has not started yet...") with:
+Replace the existing `## Status` section with:
 
 ```markdown
 ## Status
 
-Core implementation complete: Worker API (auth, entries, consent, account
-deletion), D1 schema and seed content, and a rough-prototype frontend
-(plain HTML/CSS/JS — visual design is being redone separately).
+Core implementation complete: Worker API (cookie *and* bearer-token
+Google auth, entries, consent, account deletion), D1 schema and seed
+content, a `@eve-colors/shared` package (API client + types ready for
+the upcoming React Native app), and a rough-prototype React web app
+(Vite + React Router — visual design is being redone separately).
 
 To run locally:
 
@@ -2931,20 +3710,42 @@ To run locally:
 2. `cp worker/.dev.vars.example worker/.dev.vars` and fill in real values
    (Google OAuth client credentials, a PostHog personal API key).
 3. `npm run db:migrate:local`
-4. `npm run dev:worker` (in one terminal) and `npm run dev:frontend` (in another)
-5. Open `http://localhost:8788/index.html`
+4. `npm run dev:worker` (in one terminal) and `npm run dev:web` (in another)
+5. Open `http://localhost:8788`
 
 See the design spec for full deployment steps (DNS, `wrangler d1 create`,
 `wrangler secret put`, PostHog project setup) — those remain the repo
 owner's responsibility, not something run from this codebase.
 ```
 
-- [ ] **Step 3: Manual verification**
+- [ ] **Step 3: Also update README's "Framework overview" section**
 
-Run: `npm run db:migrate:local` on a clean checkout, then `npm test`.
-Expected: migrations apply without error, full test suite passes.
+Replace the "Frontend" bullet and the "Planned repo layout" code block with:
 
-- [ ] **Step 4: Commit**
+```markdown
+- **Frontend** — [React](https://react.dev) + [React Router](https://reactrouter.com),
+  built with [Vite](https://vitejs.dev), deployed on
+  [Cloudflare Pages](https://pages.cloudflare.com/). Chosen over a plain
+  static site because a React Native mobile app is coming soon after —
+  React on web now means shared patterns (and a shared API client/types
+  package) rather than a rewrite later.
+```
+
+and:
+
+```
+/worker      — Hono API, D1 schema/migrations, seed content
+/shared      — API client + types, shared with the web app now and the
+               React Native app later
+/web         — Vite + React + React Router site
+```
+
+- [ ] **Step 4: Manual verification**
+
+Run: `npm run db:migrate:local` on a clean checkout, then `npm test`, then `npm run build:web`.
+Expected: migrations apply without error, the full test suite (worker + shared) passes, and the Vite production build completes without error.
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add worker/.dev.vars.example README.md

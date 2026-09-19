@@ -29,10 +29,10 @@ Google Cloud (OAuth client)
         ▼
 ┌─────────────────────┐        ┌──────────────────────┐
 │ Cloudflare Pages     │  API   │ Cloudflare Worker      │
-│ (static HTML/CSS/JS) │───────▶│ (Hono router)           │
-│ app.<domain>         │  calls │ api.<domain>            │
-└─────────────────────┘        │  - /auth/google/*       │
-                                │  - /api/me, /api/today  │
+│ (React + Vite +      │───────▶│ (Hono router)           │
+│  React Router)        │  calls │ api.<domain>            │
+│ app.<domain>         │        │  - /auth/google/*       │
+└─────────────────────┘        │  - /api/me, /api/today  │
                                 │  - /api/entries/*       │
                                 └───────────┬─────────────┘
                                             │
@@ -46,28 +46,42 @@ Google Cloud (OAuth client)
                                    └─────────────────┘
 ```
 
-- **Frontend**: plain HTML/CSS/vanilla JS on Cloudflare Pages. Views:
-  sign-in, today's check-in (color → question → answer → task →
-  done), timeline ("My Garden"), account/privacy settings.
+- **Frontend**: React + [React Router](https://reactrouter.com), built
+  with [Vite](https://vitejs.dev), deployed as a static build on
+  Cloudflare Pages. Views: sign-in, first-login consent, today's
+  check-in (color → question → answer → task → done), timeline
+  ("My Garden"), account/privacy settings. Chosen over a plain static
+  site because a React Native mobile app is planned soon after this
+  web app — React now means shared patterns (and a shared package,
+  below) rather than a rewrite later.
+- **`/shared` package**: framework-agnostic TypeScript — the API
+  client and the request/response types — imported by the web app now
+  and, later, by the React Native app. No React/DOM-specific code
+  lives here.
 - **API**: one Cloudflare Worker using Hono for routing, auth, and D1
-  access.
-- **Sessions**: opaque session ID in an `HttpOnly; Secure; SameSite=Lax`
-  cookie, `Domain=.<domain>` so both subdomains can read it. Session
-  rows live in D1 (`sessions` table) so logout/deletion is a row
-  delete, not JWT revocation plumbing.
+  access. This is the one backend both the web app and the future
+  mobile app call — no separate "app API," no second data store.
+- **Sessions**: opaque session ID stored in D1 (`sessions` table), so
+  logout/deletion is a row delete, not JWT revocation plumbing. Issued
+  two ways: an `HttpOnly; Secure; SameSite=Lax` cookie
+  (`Domain=.<domain>`) for the web app, or a bearer token
+  (`Authorization: Bearer <token>`, the same opaque session id) for a
+  native client — see §6.
 - **Database**: Cloudflare D1, schema managed via
   `wrangler d1 migrations`.
 
 ### Repo restructuring
 
 The current repo is Wix/Astro-specific end to end. As part of this
-build:
+build it becomes an npm-workspaces monorepo:
 - Remove: `wix.config.json`, `astro.config.mjs`, `src/extensions/*`,
   `.agents/skills/wix-*`, and Wix-only deps in `package.json`.
 - Add:
   ```
   /worker      — Hono API, D1 schema/migrations, seed content
-  /frontend    — static Pages site
+  /shared      — API client + types, shared with the web app now and
+                 the React Native app later
+  /web         — Vite + React + React Router site
   README.md
   ```
 
@@ -217,10 +231,18 @@ this be balanced over time. Not a blocker for this build.
 
 ## 5. API surface
 
-- `GET /auth/google/start` → redirect to Google OAuth consent.
+- `GET /auth/google/start` → redirect to Google OAuth consent (web).
 - `GET /auth/google/callback` → verify ID token, upsert `users` row,
-  create `sessions` row, set cookie. First-ever login routes to the
-  consent screen (see §6) before the app is usable.
+  create `sessions` row, set cookie, redirect to the consent screen on
+  first login or straight to today's check-in on a repeat login (web).
+- `POST /auth/google/token {idToken}` → mobile equivalent: a native
+  client gets an ID token directly from Google's own Sign-In SDK (no
+  redirect needed), POSTs it here, and gets back `{ token, expiresAt,
+  isNewUser }` — the same kind of session as the cookie flow, just
+  returned as JSON instead of set as a cookie.
+- `POST /auth/logout` → deletes the current session, whether it came
+  from a cookie or a bearer token. Always succeeds, even with no
+  session.
 - `GET /api/me` → current user or 401.
 - `POST /api/me/consent` → record consent (`consent_accepted_at`
   and/or `analytics_marketing_consent_at`), can be called again later
@@ -241,17 +263,31 @@ this be balanced over time. Not a blocker for this build.
 - `DELETE /api/entries/:id` → delete one entry (must belong to the
   caller).
 
-All `/api/*` routes (except `/auth/*`) require a valid session.
+All `/api/*` routes (except `/auth/*`) require a valid session, from
+either a cookie or a bearer token.
 
-## 6. Auth: custom Google OAuth
+## 6. Auth: custom Google OAuth, web and mobile
 
 Implemented directly in the Worker (no third-party auth vendor):
 Google Cloud OAuth client (owner creates it in Google Cloud Console),
-standard authorization-code flow, verify the returned ID token,
-upsert the user by `google_sub`, issue our own session. This keeps
-account data and deletion entirely inside our own system — required
-for the GDPR "delete all trace of this user" promise, since a
-third-party auth vendor would be a second place user data lives.
+verify the returned ID token, upsert the user by `google_sub`, issue
+our own session. This keeps account data and deletion entirely inside
+our own system — required for the GDPR "delete all trace of this
+user" promise, since a third-party auth vendor would be a second place
+user data lives.
+
+Two ways to get a session, both producing the same kind of session row:
+- **Web**: standard authorization-code redirect flow
+  (`GET /auth/google/start` → Google → `GET /auth/google/callback`),
+  session delivered as an `HttpOnly` cookie.
+- **Mobile** (API-ready now, no mobile app yet): a native app uses
+  Google's own Sign-In SDK to get an ID token directly — no redirect
+  or cookie jar needed — and exchanges it via `POST /auth/google/token`
+  for a bearer token it stores itself (e.g. secure device storage) and
+  sends as `Authorization: Bearer <token>` on every request.
+
+The session id **is** the bearer token — there's no separate token
+table or expiry scheme to keep in sync with `sessions`.
 
 ## 7. GDPR, consent, and wellness guardrails
 
@@ -289,10 +325,14 @@ third-party auth vendor would be a second place user data lives.
 - Worker unit tests via Vitest + `@cloudflare/vitest-pool-workers`
   (the standard Cloudflare Workers testing setup), covering: question
   selection (7-day no-repeat + exhaustion fallback), one-entry-per-day
-  enforcement, task selection/reroll, and session/auth handling.
-- Frontend: plain JS with no component framework, so verified manually
-  in-browser (color → question → answer → task → timeline → delete →
-  account deletion) rather than with an automated test suite.
+  enforcement, task selection/reroll, and session/auth handling for
+  both the cookie and bearer-token paths.
+- `/shared` unit tests via plain Vitest (no Workers runtime needed),
+  covering the API client's request/error/auth-header handling.
+- Frontend: no automated tests — verified manually in-browser (color →
+  question → answer → task → timeline → delete → account deletion)
+  even though it's React now, per the "rough prototype" scope; the
+  visual design is being redone separately.
 
 ## 10. Deployment (owner/Hiba responsibilities, not run by the agent)
 
@@ -302,10 +342,10 @@ third-party auth vendor would be a second place user data lives.
    project API key and a person-deletion-capable API key.
 3. Point DNS at Cloudflare (apex + `app.` + `api.` subdomains).
 4. `wrangler d1 create eve-colors` and run migrations.
-5. `wrangler pages deploy` for `/frontend`.
+5. `npm run build:web`, then `wrangler pages deploy` for `/web`'s
+   build output.
 6. `wrangler deploy` for `/worker`; set secrets via `wrangler secret put`:
-   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`,
-   `POSTHOG_EU_PROJECT_KEY`, `POSTHOG_DELETION_API_KEY`.
+   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `POSTHOG_DELETION_API_KEY`.
 
 ## 11. Out of scope (future work)
 
