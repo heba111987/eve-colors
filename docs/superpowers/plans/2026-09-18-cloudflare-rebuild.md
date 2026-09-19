@@ -1521,7 +1521,7 @@ Add to the top of the file:
 
 ```typescript
 import { deletePostHogPerson } from '../lib/posthog';
-import { clearSessionCookie, parseSessionId } from '../lib/session';
+import { clearSessionCookie } from '../lib/session';
 ```
 
 Append this route:
@@ -1542,8 +1542,6 @@ meRoutes.delete('/', requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 ```
-
-(`parseSessionId` is imported for consistency with the rest of the module's session helpers even though this route only needs `clearSessionCookie`; `requireAuth` already resolved the session upstream.)
 
 - [ ] **Step 8: Run test to verify it passes**
 
