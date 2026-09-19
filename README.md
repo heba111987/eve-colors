@@ -52,7 +52,7 @@ The app is being rebuilt from Wix onto Cloudflare:
 - **Frontend** — [React](https://react.dev) + [React Router](https://reactrouter.com),
   built with [Vite](https://vitejs.dev), deployed on
   [Cloudflare Pages](https://pages.cloudflare.com/). Chosen over a plain
-  static site because a React Native mobile app is planned soon after —
+  static site because a React Native mobile app is coming soon after —
   React on web now means shared patterns (and a shared API client/types
   package) rather than a rewrite later.
 - **API** — a [Cloudflare Worker](https://workers.cloudflare.com/)
@@ -68,17 +68,28 @@ The app is being rebuilt from Wix onto Cloudflare:
 - **Analytics** — [PostHog](https://posthog.com) Cloud, EU region,
   loaded only for users who opt in.
 
-Planned repo layout once the rebuild lands (an npm-workspaces monorepo):
-
-```
 /worker      — Hono API, D1 schema/migrations, seed content
-/shared      — API client + types, shared with the web app now and
-               the React Native app later
+/shared      — API client + types, shared with the web app now and the
+               React Native app later
 /web         — Vite + React + React Router site
-```
 
 ## Status
 
-Design and implementation plan are complete and approved; implementation
-has not started yet. See the design spec linked above for the full data
-model, API surface, and rollout steps.
+Core implementation complete: Worker API (cookie *and* bearer-token
+Google auth, entries, consent, account deletion), D1 schema and seed
+content, a `@eve-colors/shared` package (API client + types ready for
+the upcoming React Native app), and a rough-prototype React web app
+(Vite + React Router — visual design is being redone separately).
+
+To run locally:
+
+1. `npm install`
+2. `cp worker/.dev.vars.example worker/.dev.vars` and fill in real values
+   (Google OAuth client credentials, a PostHog personal API key).
+3. `npm run db:migrate:local`
+4. `npm run dev:worker` (in one terminal) and `npm run dev:web` (in another)
+5. Open `http://localhost:8788`
+
+See the design spec for full deployment steps (DNS, `wrangler d1 create`,
+`wrangler secret put`, PostHog project setup) — those remain the repo
+owner's responsibility, not something run from this codebase.
