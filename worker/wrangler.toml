@@ -1,0 +1,15 @@
+name = "eve-colors-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-18"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "eve-colors"
+database_id = "REPLACE_AFTER_WRANGLER_D1_CREATE"
+
+[vars]
+GOOGLE_REDIRECT_URI = "http://localhost:8787/auth/google/callback"
+SESSION_COOKIE_DOMAIN = "localhost"
+FRONTEND_BASE_URL = "http://localhost:8788"
+POSTHOG_PROJECT_ID = "REPLACE_WITH_POSTHOG_PROJECT_ID"
