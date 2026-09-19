@@ -41,6 +41,18 @@ export function Account() {
     }
   }
 
+  async function signOut() {
+    try {
+      await apiClient.logout();
+    } catch {
+      // A failed sign-out shouldn't trap the user on this page. Worst case
+      // their session outlives the click — an acceptable failure mode here,
+      // unlike account deletion, which must not be reported as done unless
+      // it actually succeeded.
+    }
+    navigate('/');
+  }
+
   async function deleteAccount() {
     if (deleteConfirmText !== 'DELETE') {
       setStatus('Type DELETE to confirm.');
@@ -63,7 +75,15 @@ export function Account() {
         <a href="/today">Today</a> · <a href="/garden">My Garden</a>
       </nav>
       <p>
-        Signed in as <strong>{user.email}</strong>
+        Signed in as <strong>{user.email}</strong>{' '}
+        <button onClick={() => void signOut()}>Sign out</button>
+      </p>
+      <h2>How we use your data</h2>
+      <p>
+        If you opt in below, we use PostHog (EU region) for analytics, and we may email you about Eve Colors for
+        marketing purposes. We never sell your data or your email address. You can withdraw that consent at any
+        time by unchecking the box below and saving, or delete your account and everything in it at any time
+        using the section at the bottom of this page.
       </p>
       <p>
         <label>
