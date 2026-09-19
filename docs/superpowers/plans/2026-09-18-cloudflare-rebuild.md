@@ -158,10 +158,35 @@ git commit -m "chore: remove Wix/Astro scaffolding, add npm-workspaces monorepo 
 - Create: `worker/vitest.config.ts`
 - Create: `worker/tests/setup/apply-migrations.ts`
 - Create: `worker/src/types.ts`
+- Create: `worker/src/index.ts` (minimal placeholder — see note below)
 - Test: `worker/tests/schema.test.ts`
 
+**Note (discovered during execution, not foreseen in the original brief):**
+`@cloudflare/vitest-pool-workers` boots a Worker runtime from `wrangler.toml`'s
+`main` entry for *every* test file, even ones that only touch the D1 binding
+and never call the fetch handler. Since `worker/src/index.ts` isn't built for
+real until Task 13, this task must create a minimal placeholder so the test
+harness can boot at all for Tasks 2–12:
+
+```typescript
+export default {
+  fetch() {
+    return new Response("not implemented", { status: 501 });
+  },
+};
+```
+
+Task 13 replaces this file wholesale with the real Hono app — see the note
+there. Also: if `npm run test --workspace=worker` fails with
+`ERR_MODULE_NOT_FOUND: Cannot find package 'vite'`, it means Task 1's
+`npm install` hoisted `vite` only under nested `node_modules/vitest/…`
+rather than to the workspace root; fix it by adding `vite` (pinned to
+whatever version is already resolved elsewhere in `package-lock.json`) as
+an explicit `worker/package.json` devDependency and reinstalling — this is
+a dependency-tree fix, not a code change.
+
 **Interfaces:**
-- Produces: `Env` type (`worker/src/types.ts`) used by every later Worker file; D1 binding name `DB`.
+- Produces: `Env` type (`worker/src/types.ts`) used by every later Worker file; D1 binding name `DB`. The placeholder default export from `worker/src/index.ts` is throwaway — nothing later task imports from it as a real interface.
 
 - [ ] **Step 1: Write `worker/wrangler.toml`**
 
@@ -2469,7 +2494,11 @@ git commit -m "feat(worker): add paginated timeline GET and entry DELETE routes"
 ## Task 13: Assemble the Hono app (src/index.ts)
 
 **Files:**
-- Create: `worker/src/index.ts`
+- Replace: `worker/src/index.ts` (Task 2 put a minimal placeholder here —
+  `export default { fetch() { return new Response("not implemented", { status: 501 }); } }`
+  — only so the vitest-pool-workers harness could boot before this task
+  existed. Overwrite it completely with the real app below; nothing in the
+  placeholder is reused.)
 - Test: `worker/tests/index.test.ts`
 
 **Interfaces:**
@@ -2515,7 +2544,10 @@ describe('assembled app', () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npm run test --workspace=worker -- tests/index.test`
-Expected: FAIL with "Cannot find module '../src/index'"
+Expected: FAIL — `worker/src/index.ts` still exports Task 2's placeholder
+object at this point, which has no `.request()` method, so
+`app.request(...)` throws (e.g. "app.request is not a function") rather
+than any of the three tests getting their expected status codes.
 
 - [ ] **Step 3: Write `worker/src/index.ts`**
 
