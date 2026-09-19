@@ -90,6 +90,33 @@ To run locally:
 4. `npm run dev:worker` (in one terminal) and `npm run dev:web` (in another)
 5. Open `http://localhost:8788`
 
-See the design spec for full deployment steps (DNS, `wrangler d1 create`,
-`wrangler secret put`, PostHog project setup) — those remain the repo
-owner's responsibility, not something run from this codebase.
+## Deploying
+
+> **Required before every production deploy — edit `web/src/lib/api.ts`.**
+> That file currently holds local-development placeholders, and nothing
+> in the build will warn you if you ship them:
+>
+> - `API_BASE` is `'http://localhost:8787'` — change it to the real API
+>   URL, `https://api.<your-domain>`. If you skip this, the deployed
+>   site will try to call your own laptop and nothing will load for
+>   anyone.
+> - `POSTHOG_EU_PROJECT_KEY` is `'REPLACE_WITH_POSTHOG_PUBLIC_KEY'` —
+>   change it to the real PostHog **public project API key** from your
+>   EU-region PostHog project. If you skip this, analytics silently
+>   records nothing.
+>
+> Make both edits first, then run `npm run build:web` and deploy — a
+> build made before the edit still contains the placeholders.
+
+Then:
+
+1. `npm run build:web`
+2. `wrangler pages deploy web/dist` (the `/web` build output) for the
+   frontend
+3. `npm run deploy:worker` (`wrangler deploy`) for the API
+
+See the design spec for the remaining deployment steps (DNS,
+`wrangler d1 create` and migrations, `wrangler secret put` for
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /
+`POSTHOG_DELETION_API_KEY`, PostHog project setup) — those remain the
+repo owner's responsibility, not something run from this codebase.
