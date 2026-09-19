@@ -264,19 +264,40 @@ describe('GET /api/entries', () => {
     await seedManualEntry('u9', 'e3', 1);
     const app = buildApp();
 
-    const firstPage = await app.request(
-      '/api/entries?cursor=' + encodeURIComponent(''),
-      { headers: { Cookie: cookie } },
-      env,
-      createExecutionContext(),
-    );
-    // No cursor on first call:
     const res = await app.request('/api/entries', { headers: { Cookie: cookie } }, env, createExecutionContext());
     expect(res.status).toBe(200);
     const body = await res.json<{ entries: Array<{ id: string }>; nextCursor: string | null }>();
     expect(body.entries.map((e) => e.id)).toEqual(['e3', 'e2', 'e1']);
     expect(body.nextCursor).toBeNull();
-    void firstPage;
+  });
+
+  it('paginates across two pages using the returned cursor', async () => {
+    await seedQuestion('q1');
+    const cookie = await seedSignedInUser('u15');
+    const ids = Array.from({ length: 22 }, (_, i) => `p${String(i + 1).padStart(2, '0')}`);
+    // daysAgo = 1..22, so p01 is newest and p22 is oldest.
+    for (let i = 0; i < ids.length; i++) {
+      await seedManualEntry('u15', ids[i], i + 1);
+    }
+    const app = buildApp();
+
+    const page1Res = await app.request('/api/entries', { headers: { Cookie: cookie } }, env, createExecutionContext());
+    expect(page1Res.status).toBe(200);
+    const page1 = await page1Res.json<{ entries: Array<{ id: string; created_at: string }>; nextCursor: string | null }>();
+    expect(page1.entries.map((e) => e.id)).toEqual(ids.slice(0, 20));
+    expect(page1.nextCursor).not.toBeNull();
+    expect(page1.nextCursor).toBe(page1.entries[19].created_at);
+
+    const page2Res = await app.request(
+      '/api/entries?cursor=' + encodeURIComponent(page1.nextCursor as string),
+      { headers: { Cookie: cookie } },
+      env,
+      createExecutionContext(),
+    );
+    expect(page2Res.status).toBe(200);
+    const page2 = await page2Res.json<{ entries: Array<{ id: string }>; nextCursor: string | null }>();
+    expect(page2.entries.map((e) => e.id)).toEqual(ids.slice(20));
+    expect(page2.nextCursor).toBeNull();
   });
 
   it('only returns the requesting user\'s entries', async () => {
