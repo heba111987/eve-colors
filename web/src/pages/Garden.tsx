@@ -12,6 +12,7 @@ export function Garden() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [status, setStatus] = useState('');
   const isLoadingRef = useRef(false);
 
   useEffect(() => {
@@ -34,12 +35,17 @@ export function Garden() {
     if (isLoadingRef.current) return;
     isLoadingRef.current = true;
     setIsLoadingMore(true);
+    setStatus('');
     try {
       const page = await apiClient.listEntries(fromCursor);
       setEntries((existing) => [...existing, ...page.entries]);
       setCursor(page.nextCursor);
-      setHasLoadedOnce(true);
+    } catch {
+      setStatus('Something went wrong. Please try again.');
     } finally {
+      // Set unconditionally: on failure this clears the "Loading…" placeholder
+      // so the error message shows instead of the page hanging forever.
+      setHasLoadedOnce(true);
       isLoadingRef.current = false;
       setIsLoadingMore(false);
     }
@@ -47,8 +53,13 @@ export function Garden() {
 
   async function deleteEntry(id: string) {
     if (!window.confirm('Delete this Eve Moment? This cannot be undone.')) return;
-    await apiClient.deleteEntry(id);
-    setEntries((existing) => existing.filter((entry) => entry.id !== id));
+    setStatus('');
+    try {
+      await apiClient.deleteEntry(id);
+      setEntries((existing) => existing.filter((entry) => entry.id !== id));
+    } catch {
+      setStatus('Something went wrong. Please try again.');
+    }
   }
 
   return (
@@ -58,6 +69,7 @@ export function Garden() {
         <a href="/today">Today</a> · <a href="/account">Account</a>
       </nav>
       {!hasLoadedOnce && <p>Loading…</p>}
+      <p role="status">{status}</p>
       <ul style={{ listStyle: 'none', padding: 0 }}>
         {entries.map((entry) => (
           <li key={entry.id} style={{ border: '1px solid #ccc', borderRadius: 8, padding: 12, marginBottom: 8 }}>

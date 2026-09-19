@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { COLORS, type TodayEntry } from '@eve-colors/shared';
+import { ApiError, COLORS, type TodayEntry } from '@eve-colors/shared';
 import { apiClient } from '../lib/api';
 import { useCurrentUser } from '../lib/useCurrentUser';
 import { loadPostHogIfConsented } from '../lib/posthog';
@@ -11,6 +11,8 @@ type Stage =
   | { name: 'question'; entryId: string; questionText: string }
   | { name: 'task'; entryId: string; taskText: string }
   | { name: 'done' };
+
+const GENERIC_ERROR = 'Something went wrong. Please try again.';
 
 const SUPPORT_SAFETY_NOTICE =
   'Eve Colors is a wellness self-reflection tool. It does not provide medical advice, diagnosis, or treatment. ' +
@@ -41,12 +43,42 @@ export function Today() {
       return;
     }
     loadPostHogIfConsented(user);
-    void apiClient.getToday().then(({ entry }) => setStage(stageFromTodayEntry(entry)));
+    void apiClient
+      .getToday()
+      .then(({ entry }) => setStage(stageFromTodayEntry(entry)))
+      .catch(() => {
+        setStage({ name: 'pickColor' });
+        setFormStatus(GENERIC_ERROR);
+      });
   }, [loading, user, navigate]);
 
+  // Re-read today's entry from the server and render whatever state it's
+  // actually in. Used to recover from a 409 on createEntry, which means
+  // today's entry already exists (e.g. a second tab picked a color first).
+  async function resyncFromServer() {
+    try {
+      const { entry } = await apiClient.getToday();
+      setStage(stageFromTodayEntry(entry));
+      setFormStatus('');
+    } catch {
+      setFormStatus(GENERIC_ERROR);
+    }
+  }
+
   async function pickColor(color: string) {
-    const { entry } = await apiClient.createEntry(color);
-    setStage({ name: 'question', entryId: entry.id, questionText: entry.question.text });
+    setFormStatus('');
+    try {
+      const { entry } = await apiClient.createEntry(color);
+      setStage({ name: 'question', entryId: entry.id, questionText: entry.question.text });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        // Today's entry already exists — not really an error, just a race.
+        // Land the user on their actual current state rather than a dead end.
+        await resyncFromServer();
+        return;
+      }
+      setFormStatus(GENERIC_ERROR);
+    }
   }
 
   async function submitAnswer(entryId: string) {
@@ -55,18 +87,33 @@ export function Today() {
       setFormStatus('Write anything that feels true for you.');
       return;
     }
-    const { entry } = await apiClient.answerEntry(entryId, trimmed);
-    setStage({ name: 'task', entryId, taskText: entry.task.text });
+    setFormStatus('');
+    try {
+      const { entry } = await apiClient.answerEntry(entryId, trimmed);
+      setStage({ name: 'task', entryId, taskText: entry.task.text });
+    } catch {
+      setFormStatus(GENERIC_ERROR);
+    }
   }
 
   async function reroll(entryId: string) {
-    const { task } = await apiClient.rerollTask(entryId);
-    setStage({ name: 'task', entryId, taskText: task.text });
+    setFormStatus('');
+    try {
+      const { task } = await apiClient.rerollTask(entryId);
+      setStage({ name: 'task', entryId, taskText: task.text });
+    } catch {
+      setFormStatus(GENERIC_ERROR);
+    }
   }
 
   async function completeTask(entryId: string) {
-    await apiClient.completeTask(entryId);
-    setStage({ name: 'done' });
+    setFormStatus('');
+    try {
+      await apiClient.completeTask(entryId);
+      setStage({ name: 'done' });
+    } catch {
+      setFormStatus(GENERIC_ERROR);
+    }
   }
 
   return (
@@ -103,7 +150,6 @@ export function Today() {
               Save my reflection
             </button>
           </p>
-          <p role="status">{formStatus}</p>
         </>
       )}
 
@@ -130,6 +176,10 @@ export function Today() {
           </p>
         </>
       )}
+
+      {/* One status line for the whole flow, so an error from any stage
+          (picking a color, answering, rerolling, completing) is visible. */}
+      <p role="status">{formStatus}</p>
 
       <p className="notice">{SUPPORT_SAFETY_NOTICE}</p>
     </div>
