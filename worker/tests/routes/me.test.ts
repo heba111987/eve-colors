@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import { env, createExecutionContext } from 'cloudflare:test';
 import { Hono } from 'hono';
 import { meRoutes } from '../../src/routes/me';
@@ -23,6 +23,10 @@ async function seedSignedInUser(id: string) {
   const session = await createSession(env.DB, id);
   return sessionCookie(session.id, 'localhost', session.expiresAt).split(';')[0];
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('GET /api/me', () => {
   it('returns 401 with no session cookie', async () => {
@@ -93,5 +97,41 @@ describe('POST /api/me/consent', () => {
       .first<{ consent_accepted_at: string; analytics_marketing_consent_at: string | null }>();
     expect(afterSecond?.consent_accepted_at).toBe(afterFirst?.consent_accepted_at);
     expect(afterSecond?.analytics_marketing_consent_at).toBeNull();
+  });
+});
+
+describe('DELETE /api/me', () => {
+  it('deletes the user, their sessions and entries, purges PostHog, and clears the cookie', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ results: [] }), { status: 200 })),
+    );
+    const cookie = await seedSignedInUser('u3');
+    const now = new Date().toISOString();
+    await env.DB
+      .prepare(`INSERT INTO questions (id, text, quadrant, created_at) VALUES ('q-del', 'Q?', 'mental', ?)`)
+      .bind(now)
+      .run();
+    await env.DB
+      .prepare(
+        `INSERT INTO entries (id, user_id, color, question_id, entry_date, created_at) VALUES ('e-del', 'u3', 'Teal', 'q-del', '2026-09-18', ?)`,
+      )
+      .bind(now)
+      .run();
+
+    const app = buildApp();
+    const res = await app.request(
+      '/api/me',
+      { method: 'DELETE', headers: { Cookie: cookie } },
+      env,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Set-Cookie')).toContain('Max-Age=0');
+
+    const user = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind('u3').first();
+    const entry = await env.DB.prepare('SELECT id FROM entries WHERE id = ?').bind('e-del').first();
+    expect(user).toBeNull();
+    expect(entry).toBeNull();
   });
 });

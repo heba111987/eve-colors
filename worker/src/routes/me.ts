@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth, type AuthedBindings } from '../middleware/require-auth';
+import { deletePostHogPerson } from '../lib/posthog';
+import { clearSessionCookie } from '../lib/session';
 
 export const meRoutes = new Hono<AuthedBindings>();
 
@@ -20,5 +22,20 @@ meRoutes.post('/consent', requireAuth, async (c) => {
     )
     .bind(now, body.analyticsMarketing ? now : null, user.id)
     .run();
+  return c.json({ ok: true });
+});
+
+meRoutes.delete('/', requireAuth, async (c) => {
+  const user = c.get('user');
+
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM entries WHERE user_id = ?').bind(user.id),
+    c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
+    c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
+  ]);
+
+  await deletePostHogPerson(c.env, user.email);
+
+  c.header('Set-Cookie', clearSessionCookie(c.env.SESSION_COOKIE_DOMAIN));
   return c.json({ ok: true });
 });
