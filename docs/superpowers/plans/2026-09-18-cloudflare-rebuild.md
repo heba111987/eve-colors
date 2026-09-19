@@ -3450,7 +3450,7 @@ git commit -m "feat(web): add today check-in flow (rough prototype)"
 - [ ] **Step 1: Write `web/src/pages/Garden.tsx`**
 
 ```tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { TimelineEntry } from '@eve-colors/shared';
 import { apiClient } from '../lib/api';
@@ -3462,6 +3462,8 @@ export function Garden() {
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const isLoadingRef = useRef(false);
 
   useEffect(() => {
     if (loading) return;
@@ -3474,10 +3476,23 @@ export function Garden() {
   }, [loading, user]);
 
   async function loadMore(fromCursor: string | null) {
-    const page = await apiClient.listEntries(fromCursor);
-    setEntries((existing) => [...existing, ...page.entries]);
-    setCursor(page.nextCursor);
-    setHasLoadedOnce(true);
+    // isLoadingRef guards against a rapid double-click firing two overlapping
+    // requests with the same cursor (state updates aren't synchronous, so a
+    // second click before the first request resolves would otherwise append
+    // duplicate entries). It also absorbs React StrictMode's dev-only double
+    // invocation of this effect on mount.
+    if (isLoadingRef.current) return;
+    isLoadingRef.current = true;
+    setIsLoadingMore(true);
+    try {
+      const page = await apiClient.listEntries(fromCursor);
+      setEntries((existing) => [...existing, ...page.entries]);
+      setCursor(page.nextCursor);
+      setHasLoadedOnce(true);
+    } finally {
+      isLoadingRef.current = false;
+      setIsLoadingMore(false);
+    }
   }
 
   async function deleteEntry(id: string) {
@@ -3503,7 +3518,11 @@ export function Garden() {
           </li>
         ))}
       </ul>
-      {cursor && <button onClick={() => void loadMore(cursor)}>Load more</button>}
+      {cursor && (
+        <button disabled={isLoadingMore} onClick={() => void loadMore(cursor)}>
+          {isLoadingMore ? 'Loading…' : 'Load more'}
+        </button>
+      )}
     </div>
   );
 }
