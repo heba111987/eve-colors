@@ -3602,6 +3602,16 @@ export function loadPostHogIfConsented(user: SessionUser | null | undefined) {
   `;
   document.head.appendChild(script);
 }
+
+// Called when a user revokes analytics consent from /account. Stops an
+// already-injected PostHog instance from continuing to capture events for
+// this browser tab — closing the gap where the `loaded` flag above only
+// prevents re-injection, not continued capture by an instance that already
+// loaded under an earlier (now-revoked) consent.
+export function stopPostHogTracking() {
+  const posthog = (window as unknown as { posthog?: { opt_out_capturing?: () => void } }).posthog;
+  posthog?.opt_out_capturing?.();
+}
 ```
 
 (Standard PostHog snippet loader, parameterized with the EU host and the project key, gated entirely behind `analyticsMarketingConsentAt`. `JSON.stringify` on both interpolated values produces a properly quoted/escaped JS string literal, closing the injection vector a raw `'${...}'` template would open.)
@@ -3613,11 +3623,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../lib/api';
 import { useCurrentUser } from '../lib/useCurrentUser';
+import { stopPostHogTracking } from '../lib/posthog';
 
 export function Account() {
   const { user, loading, refetch } = useCurrentUser();
   const navigate = useNavigate();
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
+  const [consentInitialized, setConsentInitialized] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [status, setStatus] = useState('');
 
@@ -3625,14 +3637,29 @@ export function Account() {
     if (!loading && !user) navigate('/', { replace: true });
   }, [loading, user, navigate]);
 
+  // Seed the checkbox from the server's actual consent state exactly once,
+  // as soon as the user loads. After that, `analyticsConsent` is the single
+  // source of truth so the box can be unchecked (an earlier version OR'd
+  // local state with the server value, which made consent impossible to
+  // revoke through the UI — see plan Task 18 review).
+  useEffect(() => {
+    if (user && !consentInitialized) {
+      setAnalyticsConsent(Boolean(user.analyticsMarketingConsentAt));
+      setConsentInitialized(true);
+    }
+  }, [user, consentInitialized]);
+
   if (!loading && !user) return null;
 
-  const analyticsChecked = analyticsConsent || Boolean(user?.analyticsMarketingConsentAt);
-
   async function saveConsent() {
-    await apiClient.postConsent(analyticsChecked);
-    await refetch();
-    setStatus('Saved.');
+    try {
+      await apiClient.postConsent(analyticsConsent);
+      if (!analyticsConsent) stopPostHogTracking();
+      await refetch();
+      setStatus('Saved.');
+    } catch {
+      setStatus('Something went wrong. Please try again.');
+    }
   }
 
   async function deleteAccount() {
@@ -3640,8 +3667,12 @@ export function Account() {
       setStatus('Type DELETE to confirm.');
       return;
     }
-    await apiClient.deleteMe();
-    navigate('/');
+    try {
+      await apiClient.deleteMe();
+      navigate('/');
+    } catch {
+      setStatus('Something went wrong. Please try again.');
+    }
   }
 
   if (!user) return <p>Loading…</p>;
@@ -3659,7 +3690,7 @@ export function Account() {
         <label>
           <input
             type="checkbox"
-            checked={analyticsChecked}
+            checked={analyticsConsent}
             onChange={(event) => setAnalyticsConsent(event.target.checked)}
           />{' '}
           I agree to analytics tracking and to being contacted by email for marketing purposes. Eve Colors will
