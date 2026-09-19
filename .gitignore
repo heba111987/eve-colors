@@ -27,3 +27,8 @@ out
 
 # subagent-driven-development scratch workspace
 .superpowers/
+
+node_modules/
+.wrangler/
+dist/
+worker/.dev.vars
