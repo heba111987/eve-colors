@@ -84,3 +84,163 @@ describe('POST /api/entries', () => {
     expect(res.status).toBe(400);
   });
 });
+
+async function createTodayEntry(app: Hono<AuthedBindings>, cookie: string): Promise<string> {
+  const res = await app.request(
+    '/api/entries',
+    { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ color: 'Teal' }) },
+    env,
+    createExecutionContext(),
+  );
+  const body = await res.json<{ entry: { id: string } }>();
+  return body.entry.id;
+}
+
+describe('PATCH /api/entries/:id (answer)', () => {
+  beforeEach(async () => {
+    // Clear seed tasks so pickTask deterministically selects the one task this
+    // test seeds (mirrors the pattern already established for questions in
+    // Tasks 8 and 10 — pickTask otherwise picks randomly among the 33 seeded
+    // production tasks too, making the task.id assertion below flaky).
+    await env.DB.prepare('DELETE FROM tasks WHERE id LIKE ?').bind('t-%').run();
+  });
+
+  it('saves the answer and assigns a task', async () => {
+    await seedQuestion('q1');
+    await env.DB
+      .prepare(`INSERT INTO tasks (id, text, quadrant, created_at) VALUES ('t1', 'Take a walk.', 'physical', ?)`)
+      .bind(new Date().toISOString())
+      .run();
+    const cookie = await seedSignedInUser('u4');
+    const app = buildApp();
+    const entryId = await createTodayEntry(app, cookie);
+
+    const res = await app.request(
+      `/api/entries/${entryId}`,
+      { method: 'PATCH', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: 'I feel steady today.' }) },
+      env,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json<{ entry: { task: { id: string } } }>();
+    expect(body.entry.task.id).toBe('t1');
+  });
+
+  it('rejects answering the same entry twice with 409', async () => {
+    await seedQuestion('q1');
+    await env.DB
+      .prepare(`INSERT INTO tasks (id, text, quadrant, created_at) VALUES ('t1', 'Take a walk.', 'physical', ?)`)
+      .bind(new Date().toISOString())
+      .run();
+    const cookie = await seedSignedInUser('u5');
+    const app = buildApp();
+    const entryId = await createTodayEntry(app, cookie);
+
+    await app.request(
+      `/api/entries/${entryId}`,
+      { method: 'PATCH', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: 'first' }) },
+      env,
+      createExecutionContext(),
+    );
+    const second = await app.request(
+      `/api/entries/${entryId}`,
+      { method: 'PATCH', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: 'second' }) },
+      env,
+      createExecutionContext(),
+    );
+    expect(second.status).toBe(409);
+  });
+});
+
+describe('PATCH /api/entries/:id (taskCompleted)', () => {
+  it('marks the task complete', async () => {
+    await seedQuestion('q1');
+    await env.DB
+      .prepare(`INSERT INTO tasks (id, text, quadrant, created_at) VALUES ('t1', 'Take a walk.', 'physical', ?)`)
+      .bind(new Date().toISOString())
+      .run();
+    const cookie = await seedSignedInUser('u6');
+    const app = buildApp();
+    const entryId = await createTodayEntry(app, cookie);
+    await app.request(
+      `/api/entries/${entryId}`,
+      { method: 'PATCH', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: 'answer' }) },
+      env,
+      createExecutionContext(),
+    );
+
+    const res = await app.request(
+      `/api/entries/${entryId}`,
+      { method: 'PATCH', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ taskCompleted: true }) },
+      env,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    const row = await env.DB.prepare('SELECT task_completed FROM entries WHERE id = ?').bind(entryId).first<{ task_completed: number }>();
+    expect(row?.task_completed).toBe(1);
+  });
+});
+
+describe('POST /api/entries/:id/reroll-task', () => {
+  it('assigns a different task before completion', async () => {
+    await seedQuestion('q1');
+    await env.DB
+      .prepare(
+        `INSERT INTO tasks (id, text, quadrant, created_at) VALUES ('t1', 'Take a walk.', 'physical', ?), ('t2', 'Meditate.', 'spiritual', ?)`,
+      )
+      .bind(new Date().toISOString(), new Date().toISOString())
+      .run();
+    const cookie = await seedSignedInUser('u7');
+    const app = buildApp();
+    const entryId = await createTodayEntry(app, cookie);
+    const answerRes = await app.request(
+      `/api/entries/${entryId}`,
+      { method: 'PATCH', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: 'answer' }) },
+      env,
+      createExecutionContext(),
+    );
+    const answerBody = await answerRes.json<{ entry: { task: { id: string } } }>();
+    const firstTaskId = answerBody.entry.task.id;
+
+    const res = await app.request(
+      `/api/entries/${entryId}/reroll-task`,
+      { method: 'POST', headers: { Cookie: cookie } },
+      env,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json<{ task: { id: string } }>();
+    expect(body.task.id).not.toBe(firstTaskId);
+  });
+
+  it('rejects rerolling after the task is completed', async () => {
+    await seedQuestion('q1');
+    await env.DB
+      .prepare(`INSERT INTO tasks (id, text, quadrant, created_at) VALUES ('t1', 'Take a walk.', 'physical', ?)`)
+      .bind(new Date().toISOString())
+      .run();
+    const cookie = await seedSignedInUser('u8');
+    const app = buildApp();
+    const entryId = await createTodayEntry(app, cookie);
+    await app.request(
+      `/api/entries/${entryId}`,
+      { method: 'PATCH', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: 'answer' }) },
+      env,
+      createExecutionContext(),
+    );
+    await app.request(
+      `/api/entries/${entryId}`,
+      { method: 'PATCH', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ taskCompleted: true }) },
+      env,
+      createExecutionContext(),
+    );
+
+    const res = await app.request(
+      `/api/entries/${entryId}/reroll-task`,
+      { method: 'POST', headers: { Cookie: cookie } },
+      env,
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+  });
+});

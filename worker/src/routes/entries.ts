@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth, type AuthedBindings } from '../middleware/require-auth';
 import { pickQuestion } from '../lib/questions';
+import { pickTask } from '../lib/tasks';
 import { todayUtc } from '../lib/entries';
 
 export const entryRoutes = new Hono<AuthedBindings>();
@@ -35,4 +36,67 @@ entryRoutes.post('/', requireAuth, async (c) => {
   }
 
   return c.json({ entry: { id, color: body.color, entryDate: todayUtc(), question } }, 201);
+});
+
+interface EntryRow {
+  id: string;
+  user_id: string;
+  color: string;
+  question_id: string;
+  answer_text: string | null;
+  task_id: string | null;
+  task_completed: number;
+  entry_date: string;
+}
+
+async function loadOwnedEntry(db: D1Database, userId: string, entryId: string): Promise<EntryRow | null> {
+  const row = await db
+    .prepare('SELECT * FROM entries WHERE id = ? AND user_id = ?')
+    .bind(entryId, userId)
+    .first<EntryRow>();
+  return row ?? null;
+}
+
+entryRoutes.patch('/:id', requireAuth, async (c) => {
+  const user = c.get('user');
+  const entryId = c.req.param('id');
+  const entry = await loadOwnedEntry(c.env.DB, user.id, entryId);
+  if (!entry) return c.json({ error: 'not_found' }, 404);
+
+  const body = await c.req.json<{ answer?: string; taskCompleted?: boolean }>();
+
+  if (typeof body.answer === 'string') {
+    if (entry.answer_text !== null) return c.json({ error: 'already_answered' }, 409);
+    const task = await pickTask(c.env.DB);
+    await c.env.DB
+      .prepare('UPDATE entries SET answer_text = ?, task_id = ? WHERE id = ?')
+      .bind(body.answer, task.id, entryId)
+      .run();
+    return c.json({ entry: { ...entry, answerText: body.answer, task } });
+  }
+
+  if (body.taskCompleted === true) {
+    if (!entry.task_id) return c.json({ error: 'no_task_assigned' }, 409);
+    const completedAt = new Date().toISOString();
+    await c.env.DB
+      .prepare('UPDATE entries SET task_completed = 1, completed_at = ? WHERE id = ?')
+      .bind(completedAt, entryId)
+      .run();
+    return c.json({ entry: { ...entry, taskCompleted: true, completedAt } });
+  }
+
+  return c.json({ error: 'no_recognized_update' }, 400);
+});
+
+entryRoutes.post('/:id/reroll-task', requireAuth, async (c) => {
+  const user = c.get('user');
+  const entryId = c.req.param('id');
+  const entry = await loadOwnedEntry(c.env.DB, user.id, entryId);
+  if (!entry) return c.json({ error: 'not_found' }, 404);
+  if (entry.task_completed) return c.json({ error: 'task_already_completed' }, 409);
+  if (!entry.task_id) return c.json({ error: 'no_task_assigned_yet' }, 409);
+
+  const task = await pickTask(c.env.DB, entry.task_id);
+  await c.env.DB.prepare('UPDATE entries SET task_id = ? WHERE id = ?').bind(task.id, entryId).run();
+  return c.json({ task });
 });
