@@ -954,15 +954,18 @@ describe('GET /auth/google/callback', () => {
   });
 
   function stubGoogleFetch(userInfo: Record<string, unknown>) {
+    // Check '/tokeninfo' before '/token' — '/tokeninfo' contains '/token' as a
+    // substring, so the naive order matches both Google endpoints to the same
+    // branch and misroutes the tokeninfo call.
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation((url: string) => {
-        if (url.includes('/token')) {
-          return Promise.resolve(
-            new Response(JSON.stringify({ access_token: 'a', id_token: 'id-1', expires_in: 3600, token_type: 'Bearer' })),
-          );
+        if (url.includes('/tokeninfo')) {
+          return Promise.resolve(new Response(JSON.stringify(userInfo)));
         }
-        return Promise.resolve(new Response(JSON.stringify(userInfo)));
+        return Promise.resolve(
+          new Response(JSON.stringify({ access_token: 'a', id_token: 'id-1', expires_in: 3600, token_type: 'Bearer' })),
+        );
       }),
     );
   }
