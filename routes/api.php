@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\ColorController;
 use App\Http\Controllers\Api\EntryController;
 use App\Http\Controllers\Api\MeController;
 use App\Http\Controllers\Auth\GoogleMobileController;
@@ -17,6 +18,7 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::middleware(['auth:sanctum', 'consent'])->group(function () {
+    Route::get('/colors', [ColorController::class, 'index']);
     Route::get('/today', [EntryController::class, 'today']);
     Route::post('/entries', [EntryController::class, 'store']);
     Route::patch('/entries/{id}', [EntryController::class, 'update']);
