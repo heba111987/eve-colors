@@ -137,8 +137,12 @@ it('rejects re-completing an already-completed activity and does not re-roll the
     $second->assertStatus(409);
 
     $row = \App\Models\UserResponse::find($entryId);
-    expect($row->flower_x)->toBe($firstFlowerX);
-    expect($row->flower_y)->toBe($firstFlowerY);
+    // toEqual (loose), not toBe (strict): a whole-number float like 9.0 round-trips
+    // through JSON as the int 9 (PHP's json_encode drops the trailing .0), while
+    // $row->flower_x stays a float via the model cast — comparing by value here,
+    // not by type, since the API's real clients (including JS) don't distinguish them.
+    expect($row->flower_x)->toEqual($firstFlowerX);
+    expect($row->flower_y)->toEqual($firstFlowerY);
 });
 
 it('rejects marking an activity complete before one is assigned', function () {
@@ -151,8 +155,8 @@ it('rejects marking an activity complete before one is assigned', function () {
 
 it('assigns a different activity on reroll before completion', function () {
     [, $entryId] = createTodayEntry();
-    Activity::create(['text' => 'Walk.', 'quadrant' => 'physical']);
-    Activity::create(['text' => 'Meditate.', 'quadrant' => 'spiritual']);
+    Activity::create(['text' => 'Walk.', 'note' => 'Ten minutes, no phone.', 'quadrant' => 'physical']);
+    Activity::create(['text' => 'Meditate.', 'note' => 'Sit down, eyes closed.', 'quadrant' => 'spiritual']);
     $answerResponse = $this->patchJson("/api/entries/{$entryId}", ['answer' => 'answer']);
     $firstActivityId = $answerResponse->json('entry.activity.id');
 
@@ -160,6 +164,7 @@ it('assigns a different activity on reroll before completion', function () {
 
     $response->assertOk();
     expect($response->json('activity.id'))->not->toBe($firstActivityId);
+    expect($response->json('activity.note'))->not->toBeNull();
 });
 
 it('rejects rerolling after the activity is completed', function () {

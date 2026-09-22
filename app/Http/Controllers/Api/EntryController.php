@@ -110,7 +110,7 @@ class EntryController extends Controller
         $entry->update(['activity_id' => $activity->id]);
 
         return response()->json([
-            'activity' => ['id' => $activity->id, 'text' => $activity->text, 'quadrant' => $activity->quadrant->value],
+            'activity' => ['id' => $activity->id, 'text' => $activity->text, 'note' => $activity->note, 'quadrant' => $activity->quadrant->value],
         ]);
     }
 
