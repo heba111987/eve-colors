@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\MeController;
 use App\Http\Controllers\Auth\GoogleMobileController;
 use App\Http\Controllers\Auth\LogoutController;
 use Illuminate\Http\Request;
@@ -12,3 +13,8 @@ Route::get('/user', function (Request $request) {
 Route::post('/auth/google', GoogleMobileController::class);
 
 Route::middleware('auth:sanctum')->post('/logout', LogoutController::class);
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/me', [MeController::class, 'show']);
+    Route::post('/me/consent', [MeController::class, 'updateConsent']);
+});
