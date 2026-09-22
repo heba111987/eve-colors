@@ -2033,7 +2033,7 @@ const styles = StyleSheet.create({
 import { useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { ChevronLeft, Check } from 'lucide-react-native';
+import { Check } from 'lucide-react-native';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { useEntries } from '../../../lib/hooks/useEntries';
