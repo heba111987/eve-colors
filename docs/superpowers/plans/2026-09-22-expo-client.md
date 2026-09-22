@@ -1514,7 +1514,6 @@ Copy and structure matches the prototype's consent screen exactly (the medical-d
 ```tsx
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
 import { Check } from 'lucide-react-native';
 import { Button } from '../components/Button';
 import { useConsentMutation } from '../lib/hooks/useConsentMutation';
@@ -1524,10 +1523,19 @@ export default function Consent() {
   const [analytics, setAnalytics] = useState(false);
   const mutation = useConsentMutation();
 
+  // No explicit navigation here on purpose: useConsentMutation() invalidates
+  // the ['me'] query on success, and the root AuthGate (Task 8) reactively
+  // redirects to /today as soon as that refetch shows consentAcceptedAt set.
+  // A second, explicit router.replace('/today') here would race AuthGate's
+  // own redirect for the same target on the same render pass — this raced
+  // in practice during Task 9's own verification and crashed with React's
+  // "Maximum update depth exceeded" on roughly 1 in 3 runs. AuthGate is the
+  // single source of truth for auth/consent-driven navigation; screens that
+  // trigger an auth/consent change never navigate themselves in response to
+  // it (see also Task 13's sign-out and delete-account, which follow the
+  // same rule for the same reason).
   const accept = () => {
-    mutation.mutate(analytics, {
-      onSuccess: () => router.replace('/today'),
-    });
+    mutation.mutate(analytics);
   };
 
   return (
@@ -2148,7 +2156,6 @@ git commit -m "feat: add entry detail screen and delete-entry flow"
 
 ```tsx
 import { useState } from 'react';
-import { router } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../../components/Button';
 import { Toggle } from '../../components/Toggle';
@@ -2169,12 +2176,22 @@ export default function Settings() {
 
   const analyticsOn = !!me.analyticsMarketingConsentAt;
 
+  // No explicit navigation on success here either, for the same reason
+  // documented in Task 9's consent screen: both mutations clear the query
+  // cache, which makes useMe() (in the root AuthGate) refetch and find no
+  // session — AuthGate then reactively redirects to /sign-in on its own.
+  // An explicit router.replace('/sign-in') here would race that redirect
+  // for the same target and can crash with "Maximum update depth exceeded"
+  // (reproduced during Task 9's verification with the equivalent /today
+  // race). AuthGate is the single source of truth for auth-driven
+  // navigation; this screen only triggers the auth change, never navigates
+  // in response to it.
   const signOut = () => {
-    logout.mutate(undefined, { onSuccess: () => router.replace('/sign-in') });
+    logout.mutate();
   };
 
   const confirmDelete = () => {
-    deleteAccount.mutate(undefined, { onSuccess: () => router.replace('/sign-in') });
+    deleteAccount.mutate();
   };
 
   return (
