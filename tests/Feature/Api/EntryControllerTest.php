@@ -251,3 +251,24 @@ it('returns 404 deleting an entry owned by another user', function () {
     $response->assertStatus(404);
     expect(\App\Models\UserResponse::find($entry->id))->not->toBeNull();
 });
+
+it('includes a total count alongside the paginated page', function () {
+    $user = actingUserWithConsent();
+    seedManualEntry($user, now()->subDays(2)->toDateString());
+    seedManualEntry($user, now()->subDay()->toDateString());
+
+    $response = $this->getJson('/api/entries');
+
+    $response->assertOk();
+    expect($response->json('total'))->toBe(2);
+});
+
+it('includes the activity note in the entry response once an activity is assigned', function () {
+    [, $entryId] = createTodayEntry();
+    \App\Models\Activity::create(['text' => 'Walk.', 'note' => 'Ten minutes, no phone.', 'quadrant' => 'physical']);
+
+    $response = $this->patchJson("/api/entries/{$entryId}", ['answer' => 'answer']);
+
+    $response->assertOk();
+    $response->assertJson(['entry' => ['activity' => ['note' => 'Ten minutes, no phone.']]]);
+});

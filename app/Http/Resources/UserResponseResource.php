@@ -25,6 +25,7 @@ class UserResponseResource extends JsonResource
             'activity' => $this->when($this->activity_id !== null, fn () => [
                 'id' => $this->activity->id,
                 'text' => $this->activity->text,
+                'note' => $this->activity->note,
                 'quadrant' => $this->activity->quadrant->value,
             ]),
         ];

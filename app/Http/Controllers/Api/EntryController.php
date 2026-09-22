@@ -117,9 +117,10 @@ class EntryController extends Controller
     public function index(Request $request): JsonResponse
     {
         $limit = 20;
-        $query = UserResponse::where('user_id', $request->user()->id)
-            ->with(['color', 'question', 'activity'])
-            ->orderByDesc('id');
+        $baseQuery = UserResponse::where('user_id', $request->user()->id);
+        $total = (clone $baseQuery)->count();
+
+        $query = (clone $baseQuery)->with(['color', 'question', 'activity'])->orderByDesc('id');
 
         if ($cursor = $request->query('cursor')) {
             $query->where('id', '<', $cursor);
@@ -132,6 +133,7 @@ class EntryController extends Controller
         return response()->json([
             'entries' => UserResponseResource::collection($page->values()),
             'nextCursor' => $hasMore ? (string) $page->last()->id : null,
+            'total' => $total,
         ]);
     }
 
