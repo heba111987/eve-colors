@@ -1,3 +1,0 @@
-GOOGLE_CLIENT_ID=replace-with-your-oauth-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=replace-with-your-oauth-client-secret
-POSTHOG_DELETION_API_KEY=replace-with-a-posthog-personal-api-key-with-person-deletion-scope
