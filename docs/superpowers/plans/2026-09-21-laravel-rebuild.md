@@ -2088,6 +2088,19 @@ it('rejects a second entry the same day with 409', function () {
     $second->assertStatus(409);
 });
 
+it('finds today\'s entry via GET /api/today once one has been created', function () {
+    actingUserWithConsent();
+    $color = Color::create(['name' => 'Teal', 'hex' => '#4f8f86']);
+    Question::create(['text' => 'Q1', 'quadrant' => 'mental']);
+
+    $created = $this->postJson('/api/entries', ['color_id' => $color->id])->assertCreated();
+
+    $response = $this->getJson('/api/today');
+
+    $response->assertOk();
+    expect($response->json('entry.id'))->toBe($created->json('entry.id'));
+});
+
 it('rejects a request with no color_id with 422', function () {
     actingUserWithConsent();
 
@@ -2131,7 +2144,7 @@ class EntryController extends Controller
     public function today(Request $request): JsonResponse
     {
         $entry = UserResponse::where('user_id', $request->user()->id)
-            ->where('entry_date', now()->toDateString())
+            ->whereDate('entry_date', now()->toDateString())
             ->first();
 
         return response()->json(['entry' => $entry ? new UserResponseResource($entry) : null]);
@@ -2143,7 +2156,7 @@ class EntryController extends Controller
         $user = $request->user();
         $today = now()->toDateString();
 
-        $existing = UserResponse::where('user_id', $user->id)->where('entry_date', $today)->exists();
+        $existing = UserResponse::where('user_id', $user->id)->whereDate('entry_date', $today)->exists();
         if ($existing) {
             return response()->json(['error' => 'entry_already_exists_today'], 409);
         }
@@ -2162,6 +2175,8 @@ class EntryController extends Controller
 }
 ```
 
+(`entry_date` is cast as `'date'` on `UserResponse` (Task 2), but Eloquent's `fromDateTime()` always serializes date-cast attributes for storage using the connection's default date format — `Y-m-d H:i:s` — not a bare `Y-m-d`, regardless of the cast type. So the column actually holds e.g. `2026-09-22 00:00:00`. A plain `->where('entry_date', $today)` compares against a bare `Y-m-d` string, which never matches the stored value — silently breaking both the "does today's entry already exist" check and `today()`'s lookup. `->whereDate('entry_date', $today)` compiles to `date(entry_date) = ?`, which correctly strips the time component before comparing. This is a genuine defect in this task's original code, not an implementer transcription error — found via a real `php artisan test` failure, not a reviewer's read-through.)
+
 - [ ] **Step 5: Add routes to `routes/api.php`**
 
 Append (as its own group, since it needs both `auth:sanctum` and `consent`):
@@ -2178,7 +2193,7 @@ Route::middleware(['auth:sanctum', 'consent'])->group(function () {
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `php artisan test --filter=EntryControllerTest`
-Expected: PASS — all 5 tests green.
+Expected: PASS — all 6 tests green.
 
 - [ ] **Step 7: Commit**
 
@@ -2383,7 +2398,7 @@ Route::post('/entries/{id}/reroll-activity', [EntryController::class, 'rerollAct
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `php artisan test --filter=EntryControllerTest`
-Expected: PASS — all 12 tests in this file green.
+Expected: PASS — all 13 tests in this file green.
 
 - [ ] **Step 6: Commit**
 
@@ -2530,7 +2545,7 @@ Route::delete('/entries/{id}', [EntryController::class, 'destroy']);
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `php artisan test --filter=EntryControllerTest`
-Expected: PASS — all 16 tests in this file green.
+Expected: PASS — all 17 tests in this file green.
 
 - [ ] **Step 6: Run the full suite**
 

@@ -14,7 +14,7 @@ class EntryController extends Controller
     public function today(Request $request): JsonResponse
     {
         $entry = UserResponse::where('user_id', $request->user()->id)
-            ->where('entry_date', now()->toDateString())
+            ->whereDate('entry_date', now()->toDateString())
             ->first();
 
         return response()->json(['entry' => $entry ? new UserResponseResource($entry) : null]);
@@ -26,7 +26,7 @@ class EntryController extends Controller
         $user = $request->user();
         $today = now()->toDateString();
 
-        $existing = UserResponse::where('user_id', $user->id)->where('entry_date', $today)->exists();
+        $existing = UserResponse::where('user_id', $user->id)->whereDate('entry_date', $today)->exists();
         if ($existing) {
             return response()->json(['error' => 'entry_already_exists_today'], 409);
         }

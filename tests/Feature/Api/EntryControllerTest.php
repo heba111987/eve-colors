@@ -45,6 +45,19 @@ it('rejects a second entry the same day with 409', function () {
     $second->assertStatus(409);
 });
 
+it('finds today\'s entry via GET /api/today once one has been created', function () {
+    actingUserWithConsent();
+    $color = Color::create(['name' => 'Teal', 'hex' => '#4f8f86']);
+    Question::create(['text' => 'Q1', 'quadrant' => 'mental']);
+
+    $created = $this->postJson('/api/entries', ['color_id' => $color->id])->assertCreated();
+
+    $response = $this->getJson('/api/today');
+
+    $response->assertOk();
+    expect($response->json('entry.id'))->toBe($created->json('entry.id'));
+});
+
 it('rejects a request with no color_id with 422', function () {
     actingUserWithConsent();
 
