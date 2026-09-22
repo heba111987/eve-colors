@@ -56,6 +56,11 @@ export function useDeleteEntry() {
     mutationFn: (id: number) => apiClient.delete<{ ok: true }>(`/api/entries/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['entries'] });
+      // The deleted entry may be today's — without this, useToday() keeps
+      // serving the stale cached entry (set by useCreateEntry/useCompleteActivity's
+      // setQueryData) and the Today screen keeps showing "Already planted
+      // today" for a day that was just deleted, until an unrelated refetch.
+      queryClient.invalidateQueries({ queryKey: ['today'] });
     },
   });
 }
