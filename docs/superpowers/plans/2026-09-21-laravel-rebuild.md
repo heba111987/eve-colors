@@ -23,7 +23,7 @@
 - Flower `(x, y)` is assigned by the server, as a percentage (0–100, `decimal(5,2)`), only when an entry's activity is marked complete — not at entry creation.
 - `users.google_id` is the identity key for Socialite/mobile upsert; `users.password` is nullable and unused (Google-only sign-in).
 - Sessions/tokens: `auth:sanctum` accepts either a stateful cookie session (web) or a personal access token (`Authorization: Bearer`, mobile) — written once, used everywhere, per Sanctum's own design (no manual dual-path branching needed, unlike the Cloudflare build's hand-rolled version).
-- Account deletion (`DELETE /api/me`) must remove the user row (cascading via FK to `user_responses` and `personal_access_tokens`) AND best-effort purge the PostHog EU person record — a PostHog failure must never block the account deletion (this exact bug was found and fixed once already in the Cloudflare build; build it in correctly from the start here).
+- Account deletion (`DELETE /api/me`) must explicitly delete the user's Sanctum tokens (`personal_access_tokens` has no FK — it's a polymorphic `morphs()` relation, so it never cascades) and remove the user row (which cascades via FK to `user_responses`) AND best-effort purge the PostHog EU person record — a PostHog failure must never block the account deletion (this exact bug was found and fixed once already in the Cloudflare build; build it in correctly from the start here).
 - Required wellness/terms consent (`consent_accepted_at`) must be enforced **server-side** via middleware on `/api/entries/*` and `/api/today` — not left to a future client to enforce alone (another gap the Cloudflare build had to patch after the fact).
 - `UserResponseResource` in Filament is **view-only** — no edit/delete from the admin panel.
 - Seed content (11 colors, 11 questions, 33 activities) is transcribed verbatim from the prior Cloudflare build's seed data, including quadrant tags.
@@ -1565,19 +1565,25 @@ class PostHogClient
 - [ ] **Step 2: Write the failing test — append to `tests/Feature/Api/MeControllerTest.php`**
 
 ```php
-it('deletes the account, cascades entries and tokens, and reports the PostHog purge outcome', function () {
+it('deletes the account, removes entries and tokens, and reports the PostHog purge outcome', function () {
     Http::fake([
         'eu.posthog.com/*' => Http::response(['results' => []]),
     ]);
 
     $user = User::factory()->create();
-    $token = $user->createToken('test')->plainTextToken;
+    $newToken = $user->createToken('test');
+    $tokenId = $newToken->accessToken->id;
 
-    $response = $this->withHeader('Authorization', "Bearer {$token}")->deleteJson('/api/me');
+    $response = $this->withHeader('Authorization', "Bearer {$newToken->plainTextToken}")->deleteJson('/api/me');
 
     $response->assertOk();
     $response->assertJson(['ok' => true, 'analyticsPurged' => true]);
     expect(User::find($user->id))->toBeNull();
+    // Sanctum's personal_access_tokens table has no FK constraint (it's a
+    // polymorphic morphs() column, not a single-table reference), so this
+    // must be checked explicitly — a DB-level cascade would never catch a
+    // regression here.
+    expect(\Laravel\Sanctum\PersonalAccessToken::find($tokenId))->toBeNull();
 });
 
 it('still deletes the account when the PostHog purge fails', function () {
@@ -1613,13 +1619,14 @@ public function destroy(Request $request, PostHogClient $postHog): JsonResponse
     $user = $request->user();
     $analyticsPurged = $postHog->deletePerson($user->email);
 
+    $user->tokens()->delete();
     $user->delete();
 
     return response()->json(['ok' => true, 'analyticsPurged' => $analyticsPurged]);
 }
 ```
 
-(PostHog is purged before the delete, and the deletion always proceeds regardless of the purge's outcome — an analytics vendor being unreachable must never block a user's explicit "delete my account" request. `$user->delete()` cascades to `user_responses` and `personal_access_tokens` via the FK constraints from Tasks 2 and 4.)
+(PostHog is purged before the delete, and the deletion always proceeds regardless of the purge's outcome — an analytics vendor being unreachable must never block a user's explicit "delete my account" request. `$user->delete()` cascades to `user_responses` via the FK from Task 2 — but **not** to `personal_access_tokens`: Sanctum's `personal_access_tokens` table uses `$table->morphs('tokenable')` (a polymorphic relation), which Laravel never backs with a database-level foreign key constraint, since a single `tokenable_id` column can point at rows in different tables depending on `tokenable_type`. A prior draft of this task assumed FK cascade covered tokens too — it doesn't. `$user->tokens()->delete()` (using the `tokens()` relation `HasApiTokens` provides) explicitly deletes them first, so no token row survives account deletion, closing a real "trace left behind" gap on this GDPR-critical endpoint. This isn't a security hole on its own — Sanctum's guard can't authenticate a token whose `tokenable` no longer resolves — but an unpurged row naming the deleted user's token/abilities/timestamps is still exactly the kind of trace "delete all trace of this user" is supposed to prevent.)
 
 - [ ] **Step 5: Add the route to `routes/api.php`**
 

@@ -113,12 +113,14 @@ user_responses                              -- one row = one day = one flower
   UNIQUE (user_id, entry_date)              -- one entry per user per UTC day
 ```
 
-**`ON DELETE CASCADE` on `user_responses.user_id`** (and on Sanctum's
-`personal_access_tokens` polymorphic relation, which cascades by default) means the
-GDPR account-deletion flow collapses to essentially `$user->delete()` — the database
-itself guarantees no orphaned entries or tokens survive a deleted user, which is a
-simpler and more robust guarantee than the Cloudflare build's manual multi-table
-`DB.batch()` delete.
+**`ON DELETE CASCADE` on `user_responses.user_id`** means the database itself
+guarantees no orphaned entries survive a deleted user. Sanctum's
+`personal_access_tokens` table uses a polymorphic `morphs('tokenable')` relation,
+which Laravel never backs with a database-level foreign key — so tokens do
+**not** cascade automatically and must be deleted explicitly
+(`$user->tokens()->delete()`) before `$user->delete()` in the account-deletion
+flow. This is still simpler and more robust than the Cloudflare build's manual
+multi-table `DB.batch()` delete, just not a single free `$user->delete()` call.
 
 ### Quadrant definitions
 
@@ -180,9 +182,11 @@ Two login paths, both producing a Sanctum-authenticated session:
 - `GET /api/me` → current user + consent status.
 - `POST /api/me/consent {analyticsMarketing}` → required consent stamped once
   (first call), analytics/marketing consent freely toggled on every call.
-- `DELETE /api/me` → `$user->delete()` (cascades to `user_responses` + tokens) +
-  PostHog person purge (best-effort, logged on failure, never blocks the deletion —
-  same lesson learned and already fixed once in the Cloudflare build).
+- `DELETE /api/me` → `$user->tokens()->delete()` + `$user->delete()` (the FK cascade
+  covers `user_responses`; tokens need the explicit call since Sanctum's polymorphic
+  relation has no FK) + PostHog person purge (best-effort, logged on failure, never
+  blocks the deletion — same lesson learned and already fixed once in the Cloudflare
+  build).
 - `GET /api/today` → today's `user_responses` row if one exists, else null.
 - `POST /api/entries {color_id}` → creates today's row, picks a question; 409 if
   today's entry already exists.
@@ -229,9 +233,10 @@ Unchanged in substance from the Cloudflare build, re-verified against this stack
   vs. opt-in analytics/marketing (`analytics_marketing_consent_at`, freely toggled).
   Enforced server-side via the `RequireConsent` middleware (see §5) — not just
   client-side, closing the gap the Cloudflare build had to patch after its final review.
-- **Account deletion**: `DELETE /api/me` removes the user row (cascading to entries and
-  tokens) and purges the PostHog person record on a best-effort basis (logged failure,
-  never blocks the deletion — matches the fix already validated once).
+- **Account deletion**: `DELETE /api/me` explicitly deletes the user's Sanctum tokens,
+  removes the user row (cascading to entries via FK), and purges the PostHog person
+  record on a best-effort basis (logged failure, never blocks the deletion — matches
+  the fix already validated once).
 - **No tracking without consent**: PostHog only initialized client-side when
   `analytics_marketing_consent_at` is set — a client-side requirement noted here for
   whoever builds the Expo app.
