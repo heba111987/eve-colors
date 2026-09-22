@@ -2705,6 +2705,8 @@ protected function handleRecordUpdate(\Illuminate\Database\Eloquent\Model $recor
 
 (This is safe precisely because reaching this page at all already requires `canAccessPanel()` to have returned `true` for the current user — i.e. they're already an admin. It's a controlled, gated write path, unlike a public API endpoint.)
 
+**Remove delete capability from this resource.** Filament's generator scaffolds a `DeleteAction` on the Edit page's header and a `DeleteBulkAction` in the table's bulk-actions toolbar by default — neither was asked for here, and both are actively unsafe to leave in: they call Eloquent's plain `$record->delete()`, which does **not** run the token-purge (`$user->tokens()->delete()`) or PostHog-purge steps that `MeController::destroy()` (Task 10) established as the required "delete all trace of this user" path. Leaving Filament's default delete in place would open a second, incomplete deletion path for the exact GDPR gap Task 10 closed for the self-service one. Remove the `DeleteAction::make()` call (and its now-unused import) from the Edit page's `getHeaderActions()`, and remove the `BulkActionGroup`/`DeleteBulkAction` block (and its imports) from the table's `toolbarActions()` — this resource stays list + narrow is_admin-edit only, exactly as scoped above, with no delete affordance at all. (If a future task ever needs admin-triggered account deletion, it should call the same purge-then-delete logic `MeController::destroy()` uses, not Filament's default.)
+
 - [ ] **Step 8: Generate the ColorResource with full CRUD**
 
 ```bash
