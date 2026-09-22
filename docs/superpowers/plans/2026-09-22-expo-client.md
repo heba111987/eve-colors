@@ -1279,12 +1279,19 @@ export { ApiError };
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../apiClient';
 
+// invalidateQueries(), not clear(): clear() wipes the cache but doesn't
+// reliably guarantee an immediate refetch for active observers, which left
+// AuthGate's useMe() query stuck showing stale "signed in" data for up to
+// 15s (or until an unrelated interaction) after a real sign-out/delete in
+// live testing during Task 13. invalidateQueries() is the same proven-
+// reliable mechanism the consent-accept flow (Task 9) already uses to make
+// AuthGate redirect reactively.
 export function useLogout() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => apiClient.post<{ ok: true }>('/api/logout'),
     onSuccess: () => {
-      queryClient.clear();
+      queryClient.invalidateQueries();
     },
   });
 }
@@ -1294,7 +1301,7 @@ export function useDeleteAccount() {
   return useMutation({
     mutationFn: () => apiClient.delete<{ ok: true; analyticsPurged: boolean }>('/api/me'),
     onSuccess: () => {
-      queryClient.clear();
+      queryClient.invalidateQueries();
     },
   });
 }
