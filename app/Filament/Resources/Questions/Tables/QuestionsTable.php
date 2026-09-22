@@ -15,6 +15,11 @@ class QuestionsTable
     {
         return $table
             ->columns([
+                TextColumn::make('text')
+                    ->label('Question')
+                    ->limit(60)
+                    ->tooltip(fn (TextColumn $column): ?string => strlen((string) $column->getState()) > 60 ? $column->getState() : null)
+                    ->searchable(),
                 TextColumn::make('quadrant')
                     ->badge()
                     ->searchable(),
