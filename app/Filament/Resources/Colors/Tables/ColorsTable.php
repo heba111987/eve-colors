@@ -19,6 +19,10 @@ class ColorsTable
                 TextColumn::make('name')
                     ->searchable(),
                 ColorColumn::make('hex'),
+                TextColumn::make('description')
+                    ->limit(60)
+                    ->tooltip(fn (TextColumn $column): ?string => strlen((string) $column->getState()) > 60 ? $column->getState() : null)
+                    ->searchable(),
                 IconColumn::make('active')
                     ->boolean(),
                 TextColumn::make('created_at')
