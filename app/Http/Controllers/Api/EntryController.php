@@ -109,4 +109,34 @@ class EntryController extends Controller
             'activity' => ['id' => $activity->id, 'text' => $activity->text, 'quadrant' => $activity->quadrant->value],
         ]);
     }
+
+    public function index(Request $request): JsonResponse
+    {
+        $limit = 20;
+        $query = UserResponse::where('user_id', $request->user()->id)->orderByDesc('id');
+
+        if ($cursor = $request->query('cursor')) {
+            $query->where('id', '<', $cursor);
+        }
+
+        $rows = $query->limit($limit + 1)->get();
+        $hasMore = $rows->count() > $limit;
+        $page = $hasMore ? $rows->slice(0, $limit) : $rows;
+
+        return response()->json([
+            'entries' => UserResponseResource::collection($page->values()),
+            'nextCursor' => $hasMore ? (string) $page->last()->id : null,
+        ]);
+    }
+
+    public function destroy(Request $request, int $id): JsonResponse
+    {
+        $deleted = UserResponse::where('id', $id)->where('user_id', $request->user()->id)->delete();
+
+        if ($deleted === 0) {
+            return response()->json(['error' => 'not_found'], 404);
+        }
+
+        return response()->json(['ok' => true]);
+    }
 }

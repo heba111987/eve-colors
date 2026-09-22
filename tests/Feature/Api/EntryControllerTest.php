@@ -164,3 +164,72 @@ it('returns 404 when patching an entry owned by another user', function () {
 
     $response->assertStatus(404);
 });
+
+function seedManualEntry(User $user, string $entryDate, ?array $flower = null): \App\Models\UserResponse
+{
+    $color = Color::firstOrCreate(['name' => 'Teal'], ['hex' => '#4f8f86']);
+    $question = Question::firstOrCreate(['text' => 'Manual Q'], ['quadrant' => 'mental']);
+
+    return \App\Models\UserResponse::create([
+        'user_id' => $user->id,
+        'color_id' => $color->id,
+        'question_id' => $question->id,
+        'entry_date' => $entryDate,
+        'flower_x' => $flower[0] ?? null,
+        'flower_y' => $flower[1] ?? null,
+    ]);
+}
+
+it('returns entries newest first, scoped to the requesting user', function () {
+    $user = actingUserWithConsent();
+    $otherUser = User::factory()->create();
+
+    seedManualEntry($user, now()->subDays(2)->toDateString());
+    $newest = seedManualEntry($user, now()->subDay()->toDateString());
+    seedManualEntry($otherUser, now()->subDay()->toDateString());
+
+    $response = $this->getJson('/api/entries');
+
+    $response->assertOk();
+    $ids = collect($response->json('entries'))->pluck('id');
+    expect($ids->first())->toBe($newest->id);
+    expect($ids->count())->toBe(2);
+});
+
+it('paginates with a cursor', function () {
+    $user = actingUserWithConsent();
+    for ($i = 0; $i < 25; $i++) {
+        seedManualEntry($user, now()->subDays($i + 1)->toDateString());
+    }
+
+    $firstPage = $this->getJson('/api/entries');
+    $firstPage->assertOk();
+    expect($firstPage->json('entries'))->toHaveCount(20);
+    expect($firstPage->json('nextCursor'))->not->toBeNull();
+
+    $secondPage = $this->getJson('/api/entries?cursor=' . urlencode($firstPage->json('nextCursor')));
+    $secondPage->assertOk();
+    expect($secondPage->json('entries'))->toHaveCount(5);
+    expect($secondPage->json('nextCursor'))->toBeNull();
+});
+
+it('deletes an entry the user owns', function () {
+    $user = actingUserWithConsent();
+    $entry = seedManualEntry($user, now()->toDateString());
+
+    $response = $this->deleteJson("/api/entries/{$entry->id}");
+
+    $response->assertOk();
+    expect(\App\Models\UserResponse::find($entry->id))->toBeNull();
+});
+
+it('returns 404 deleting an entry owned by another user', function () {
+    $user = actingUserWithConsent();
+    $otherUser = User::factory()->create();
+    $entry = seedManualEntry($otherUser, now()->toDateString());
+
+    $response = $this->deleteJson("/api/entries/{$entry->id}");
+
+    $response->assertStatus(404);
+    expect(\App\Models\UserResponse::find($entry->id))->not->toBeNull();
+});
