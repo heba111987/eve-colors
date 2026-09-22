@@ -24,4 +24,6 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::middleware(['auth:sanctum', 'consent'])->group(function () {
     Route::get('/today', [EntryController::class, 'today']);
     Route::post('/entries', [EntryController::class, 'store']);
+    Route::patch('/entries/{id}', [EntryController::class, 'update']);
+    Route::post('/entries/{id}/reroll-activity', [EntryController::class, 'rerollActivity']);
 });
