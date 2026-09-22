@@ -2074,14 +2074,14 @@ export default function EntryDetail() {
     deleteEntry.mutate(entry.id, {
       onSuccess: () => {
         setConfirmOpen(false);
-        router.back();
+        router.replace('/garden');
       },
     });
   };
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Button title="Garden" variant="secondary" onPress={() => router.back()} style={{ alignSelf: 'flex-start' }} />
+      <Button title="Garden" variant="secondary" onPress={() => router.replace('/garden')} style={{ alignSelf: 'flex-start' }} />
 
       <View style={{ alignItems: 'center', marginVertical: theme.space[6] }}>
         <Image source={iconSource(color?.icon ?? 'lotus-sage.png')} style={{ width: 150, height: 150 }} resizeMode="contain" />
@@ -2132,9 +2132,11 @@ const styles = StyleSheet.create({
 });
 ```
 
+(Both navigation calls use `router.replace('/garden')`, not `router.back()`, despite this being conceptually a "go back" action. Verified directly: on web, `garden/[id]` is registered as a hidden sibling `Tabs.Screen` (Task 8's `_layout.tsx`, `href: null`) rather than nested in a stack under the Garden tab — tab switches don't push a distinct browser-history entry the way a genuine stack push does, so `router.back()` from this screen pops past the Garden tab entirely and lands on Today instead, regardless of which tab the user actually came from. `router.replace('/garden')` sidesteps the ambiguity entirely by always landing on the correct screen, at the minor, acceptable cost of not preserving the garden list's scroll position the way a true back-navigation would.)
+
 - [ ] **Step 3: Verify manually**
 
-From the garden screen (Task 11), tap an entry — confirm the detail view shows the right color, date, question, answer, and (if completed) the task line. Tap "Delete this day", confirm the dialog appears, tap "Keep it" and confirm it closes with no change. Reopen, tap "Delete this day" for real, confirm it navigates back to the garden list and the entry is actually gone (both from the list and, if it had a flower, from the scene).
+From the garden screen (Task 11), tap an entry — confirm the detail view shows the right color, date, question, answer, and (if completed) the task line. Tap "Delete this day", confirm the dialog appears, tap "Keep it" and confirm it closes with no change. Reopen, tap "Delete this day" for real, confirm it navigates to the garden list (not the Today tab) and the entry is actually gone (both from the list and, if it had a flower, from the scene).
 
 - [ ] **Step 4: Commit**
 

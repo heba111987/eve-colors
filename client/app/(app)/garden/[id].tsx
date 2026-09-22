@@ -32,14 +32,14 @@ export default function EntryDetail() {
     deleteEntry.mutate(entry.id, {
       onSuccess: () => {
         setConfirmOpen(false);
-        router.back();
+        router.replace('/garden');
       },
     });
   };
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Button title="Garden" variant="secondary" onPress={() => router.back()} style={{ alignSelf: 'flex-start' }} />
+      <Button title="Garden" variant="secondary" onPress={() => router.replace('/garden')} style={{ alignSelf: 'flex-start' }} />
 
       <View style={{ alignItems: 'center', marginVertical: theme.space[6] }}>
         <Image source={iconSource(color?.icon ?? 'lotus-sage.png')} style={{ width: 150, height: 150 }} resizeMode="contain" />
