@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\EntryController;
 use App\Http\Controllers\Api\MeController;
 use App\Http\Controllers\Auth\GoogleMobileController;
 use App\Http\Controllers\Auth\LogoutController;
@@ -18,4 +19,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [MeController::class, 'show']);
     Route::post('/me/consent', [MeController::class, 'updateConsent']);
     Route::delete('/me', [MeController::class, 'destroy']);
+});
+
+Route::middleware(['auth:sanctum', 'consent'])->group(function () {
+    Route::get('/today', [EntryController::class, 'today']);
+    Route::post('/entries', [EntryController::class, 'store']);
 });

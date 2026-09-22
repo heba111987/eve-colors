@@ -1,0 +1,32 @@
+<?php
+
+namespace App\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+class UserResponseResource extends JsonResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'color' => $this->color->name,
+            'answerText' => $this->answer_text,
+            'activityCompleted' => $this->activity_completed,
+            'entryDate' => $this->entry_date->toDateString(),
+            'flowerX' => $this->flower_x,
+            'flowerY' => $this->flower_y,
+            'question' => [
+                'id' => $this->question->id,
+                'text' => $this->question->text,
+                'quadrant' => $this->question->quadrant->value,
+            ],
+            'activity' => $this->when($this->activity_id !== null, fn () => [
+                'id' => $this->activity->id,
+                'text' => $this->activity->text,
+                'quadrant' => $this->activity->quadrant->value,
+            ]),
+        ];
+    }
+}
