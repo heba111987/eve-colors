@@ -7,6 +7,7 @@ use App\Http\Resources\SessionUserResource;
 use App\Services\PostHogClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class MeController extends Controller
 {
@@ -33,6 +34,7 @@ class MeController extends Controller
         $analyticsPurged = $postHog->deletePerson($user->email);
 
         $user->tokens()->delete();
+        DB::table('sessions')->where('user_id', $user->id)->delete();
         $user->delete();
 
         return response()->json(['ok' => true, 'analyticsPurged' => $analyticsPurged]);

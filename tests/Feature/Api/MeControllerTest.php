@@ -2,7 +2,9 @@
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
 
@@ -52,12 +54,22 @@ it('deletes the account, cascades entries and tokens, and reports the PostHog pu
     $newToken = $user->createToken('test');
     $tokenId = $newToken->accessToken->id;
 
+    DB::table('sessions')->insert([
+        'id' => Str::random(40),
+        'user_id' => $user->id,
+        'ip_address' => '127.0.0.1',
+        'user_agent' => 'PestTestAgent',
+        'payload' => base64_encode(serialize([])),
+        'last_activity' => now()->timestamp,
+    ]);
+
     $response = $this->withHeader('Authorization', "Bearer {$newToken->plainTextToken}")->deleteJson('/api/me');
 
     $response->assertOk();
     $response->assertJson(['ok' => true, 'analyticsPurged' => true]);
     expect(User::find($user->id))->toBeNull();
     expect(\Laravel\Sanctum\PersonalAccessToken::find($tokenId))->toBeNull();
+    expect(DB::table('sessions')->where('user_id', $user->id)->doesntExist())->toBeTrue();
 });
 
 it('still deletes the account when the PostHog purge fails', function () {

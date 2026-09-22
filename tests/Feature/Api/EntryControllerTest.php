@@ -123,6 +123,24 @@ it('marks the activity complete and assigns flower coordinates', function () {
     expect($row->flower_y)->not->toBeNull();
 });
 
+it('rejects re-completing an already-completed activity and does not re-roll the flower', function () {
+    [, $entryId] = createTodayEntry();
+    Activity::create(['text' => 'Walk.', 'quadrant' => 'physical']);
+    $this->patchJson("/api/entries/{$entryId}", ['answer' => 'answer'])->assertOk();
+
+    $first = $this->patchJson("/api/entries/{$entryId}", ['activityCompleted' => true]);
+    $first->assertOk();
+    $firstFlowerX = $first->json('entry.flowerX');
+    $firstFlowerY = $first->json('entry.flowerY');
+
+    $second = $this->patchJson("/api/entries/{$entryId}", ['activityCompleted' => true]);
+    $second->assertStatus(409);
+
+    $row = \App\Models\UserResponse::find($entryId);
+    expect($row->flower_x)->toBe($firstFlowerX);
+    expect($row->flower_y)->toBe($firstFlowerY);
+});
+
 it('rejects marking an activity complete before one is assigned', function () {
     [, $entryId] = createTodayEntry();
 

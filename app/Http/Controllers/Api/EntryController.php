@@ -10,7 +10,6 @@ use App\Services\FlowerPlacer;
 use App\Services\QuestionSelector;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 
 class EntryController extends Controller
 {
@@ -18,6 +17,7 @@ class EntryController extends Controller
     {
         $entry = UserResponse::where('user_id', $request->user()->id)
             ->whereDate('entry_date', now()->toDateString())
+            ->with(['color', 'question', 'activity'])
             ->first();
 
         return response()->json(['entry' => $entry ? new UserResponseResource($entry) : null]);
@@ -71,6 +71,10 @@ class EntryController extends Controller
         }
 
         if ($request->boolean('activityCompleted')) {
+            if ($entry->activity_completed) {
+                return response()->json(['error' => 'activity_already_completed'], 409);
+            }
+
             if (! $entry->activity_id) {
                 return response()->json(['error' => 'no_activity_assigned'], 409);
             }
@@ -113,7 +117,9 @@ class EntryController extends Controller
     public function index(Request $request): JsonResponse
     {
         $limit = 20;
-        $query = UserResponse::where('user_id', $request->user()->id)->orderByDesc('id');
+        $query = UserResponse::where('user_id', $request->user()->id)
+            ->with(['color', 'question', 'activity'])
+            ->orderByDesc('id');
 
         if ($cursor = $request->query('cursor')) {
             $query->where('id', '<', $cursor);
