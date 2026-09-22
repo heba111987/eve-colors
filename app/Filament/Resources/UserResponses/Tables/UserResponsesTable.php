@@ -2,10 +2,12 @@
 
 namespace App\Filament\Resources\UserResponses\Tables;
 
+use App\Enums\Quadrant;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class UserResponsesTable
 {
@@ -21,12 +23,18 @@ class UserResponsesTable
                 IconColumn::make('activity_completed')->boolean(),
             ])
             ->filters([
-                SelectFilter::make('question.quadrant')
-                    ->relationship('question', 'quadrant')
-                    ->options([
-                        'mental' => 'Mental', 'physical' => 'Physical',
-                        'emotional' => 'Emotional', 'spiritual' => 'Spiritual',
-                    ]),
+                SelectFilter::make('question_quadrant')
+                    ->label('Question Quadrant')
+                    ->options(Quadrant::class)
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query->when(
+                            $data['value'] ?? null,
+                            fn (Builder $query, string $value): Builder => $query->whereHas(
+                                'question',
+                                fn (Builder $q) => $q->where('quadrant', $value)
+                            )
+                        );
+                    }),
             ]);
     }
 }
