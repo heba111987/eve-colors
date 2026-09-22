@@ -1,47 +1,61 @@
-import { useFonts } from 'expo-font';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
-import { useColorScheme } from 'react-native';
-import 'react-native-reanimated';
+import { useFonts, Caprasimo_400Regular } from '@expo-google-fonts/caprasimo';
+import { Figtree_400Regular, Figtree_600SemiBold, Figtree_700Bold } from '@expo-google-fonts/figtree';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { Redirect, Slot, usePathname } from 'expo-router';
+import { ActivityIndicator, View } from 'react-native';
+import { queryClient } from '../lib/queryClient';
+import { useMe } from '../lib/hooks/useMe';
+import { theme } from '../lib/theme';
 
-export {
-  // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
-} from 'expo-router';
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { data: me, isLoading, isError } = useMe();
+  const pathname = usePathname();
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
-
-export default function RootLayout() {
-  const [loaded, error] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
-
-  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
-  useEffect(() => {
-    if (error) throw error;
-  }, [error]);
-
-  useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
-
-  if (!loaded) {
-    return null;
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.bg }}>
+        <ActivityIndicator color={theme.colors.accent500} />
+      </View>
+    );
   }
 
-  return <RootLayoutNav />;
+  const signedIn = !isError && !!me;
+  const consented = signedIn && !!me.consentAcceptedAt;
+
+  if (!signedIn && pathname !== '/sign-in') {
+    return <Redirect href="/sign-in" />;
+  }
+  if (signedIn && !consented && pathname !== '/consent') {
+    return <Redirect href="/consent" />;
+  }
+  if (signedIn && consented && (pathname === '/sign-in' || pathname === '/consent')) {
+    return <Redirect href="/today" />;
+  }
+
+  return <>{children}</>;
 }
 
-function RootLayoutNav() {
-  const colorScheme = useColorScheme();
+export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Caprasimo_400Regular,
+    Figtree_400Regular,
+    Figtree_600SemiBold,
+    Figtree_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.bg }}>
+        <ActivityIndicator color={theme.colors.accent500} />
+      </View>
+    );
+  }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack />
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthGate>
+        <Slot />
+      </AuthGate>
+    </QueryClientProvider>
   );
 }
