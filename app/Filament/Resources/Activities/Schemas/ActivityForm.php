@@ -18,6 +18,10 @@ class ActivityForm
                     ->required()
                     ->rows(3)
                     ->columnSpanFull(),
+                Textarea::make('note')
+                    ->required()
+                    ->rows(2)
+                    ->columnSpanFull(),
                 Select::make('quadrant')
                     ->options(Quadrant::class)
                     ->required(),

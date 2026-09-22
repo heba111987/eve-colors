@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Color extends Model
 {
-    protected $fillable = ['name', 'hex', 'description', 'active'];
+    protected $fillable = ['name', 'hex', 'description', 'icon', 'active'];
 
     protected $casts = ['active' => 'boolean'];
 }

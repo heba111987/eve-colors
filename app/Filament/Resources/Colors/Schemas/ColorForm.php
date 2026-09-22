@@ -21,6 +21,8 @@ class ColorForm
                     ->required()
                     ->rows(3)
                     ->columnSpanFull(),
+                TextInput::make('icon')
+                    ->required(),
                 Toggle::make('active')
                     ->required(),
             ]);

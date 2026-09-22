@@ -23,6 +23,7 @@ class ColorsTable
                     ->limit(60)
                     ->tooltip(fn (TextColumn $column): ?string => strlen((string) $column->getState()) > 60 ? $column->getState() : null)
                     ->searchable(),
+                TextColumn::make('icon'),
                 IconColumn::make('active')
                     ->boolean(),
                 TextColumn::make('created_at')
