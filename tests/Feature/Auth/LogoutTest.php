@@ -27,7 +27,7 @@ it('logs out and invalidates the session for a session-authenticated request', f
     $user = User::factory()->create();
 
     $response = $this->actingAs($user)
-        ->withHeader('Referer', 'http://localhost')
+        ->withHeader('Referer', 'http://localhost:8081')
         ->postJson('/api/logout');
 
     $response->assertOk();
