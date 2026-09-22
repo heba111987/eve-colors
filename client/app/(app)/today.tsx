@@ -64,7 +64,7 @@ function DoneStage({ entry }: { entry: NonNullable<ReturnType<typeof useToday>['
       <Image source={require('../../assets/images/lotus-peach.png')} style={{ width: 150, height: 150 }} resizeMode="contain" />
       <Text style={[styles.h2, { marginTop: theme.space[4], textAlign: 'center' }]}>Already planted today.</Text>
       <Text style={[styles.subtitle, { textAlign: 'center' }]}>
-        {entry.color} — {entry.activity?.text ?? 'Today’s task'}. Come back tomorrow for the next one.
+        {entry.color.name} — {entry.activity?.text ?? 'Today’s task'}. Come back tomorrow for the next one.
       </Text>
       <Button title="See my garden" onPress={() => router.replace('/garden')} style={{ marginTop: theme.space[6], width: '100%' }} />
     </View>

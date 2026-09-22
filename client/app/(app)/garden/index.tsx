@@ -1,7 +1,6 @@
 import { router } from 'expo-router';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useEntries } from '../../../lib/hooks/useEntries';
-import { useColors } from '../../../lib/hooks/useColors';
 import { iconSource } from '../../../lib/icons';
 import { theme } from '../../../lib/theme';
 import { Button } from '../../../components/Button';
@@ -10,9 +9,7 @@ const SCENE_HEIGHT = 220;
 
 export default function Garden() {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useEntries();
-  const { data: colors } = useColors();
 
-  const colorsByName = new Map((colors ?? []).map((c) => [c.name, c]));
   const entries = (data?.pages ?? []).flatMap((p) => p.entries);
   const total = data?.pages[0]?.total ?? 0;
   const planted = entries.filter(
@@ -27,39 +24,33 @@ export default function Garden() {
       <Text style={styles.subtitle}>{total} {total === 1 ? 'day' : 'days'}, all yours. Tap any flower to read it back.</Text>
 
       <View style={styles.scene}>
-        {planted.map((e) => {
-          const color = colorsByName.get(e.color);
-          return (
-            <Pressable
-              key={e.id}
-              onPress={() => router.push(`/garden/${e.id}`)}
-              style={[
-                styles.flower,
-                { left: `${e.flowerX}%`, top: `${e.flowerY}%` },
-              ]}
-            >
-              <Image source={iconSource(color?.icon ?? 'lotus-sage.png')} style={styles.flowerIcon} resizeMode="contain" />
-            </Pressable>
-          );
-        })}
+        {planted.map((e) => (
+          <Pressable
+            key={e.id}
+            onPress={() => router.push(`/garden/${e.id}`)}
+            style={[
+              styles.flower,
+              { left: `${e.flowerX}%`, top: `${e.flowerY}%` },
+            ]}
+          >
+            <Image source={iconSource(e.color.icon)} style={styles.flowerIcon} resizeMode="contain" />
+          </Pressable>
+        ))}
       </View>
 
       <View style={{ gap: 10, marginTop: theme.space[6] }}>
-        {entries.map((e) => {
-          const color = colorsByName.get(e.color);
-          return (
-            <Pressable key={e.id} onPress={() => router.push(`/garden/${e.id}`)} style={styles.entryRow}>
-              <Image source={iconSource(color?.icon ?? 'lotus-sage.png')} style={styles.entryIcon} resizeMode="contain" />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <View style={{ flexDirection: 'row', gap: 7, alignItems: 'baseline' }}>
-                  <Text style={styles.entryColorName}>{e.color}</Text>
-                  <Text style={styles.entryDate}>{e.entryDate}</Text>
-                </View>
-                <Text style={styles.entrySnippet} numberOfLines={1}>{e.answerText}</Text>
+        {entries.map((e) => (
+          <Pressable key={e.id} onPress={() => router.push(`/garden/${e.id}`)} style={styles.entryRow}>
+            <Image source={iconSource(e.color.icon)} style={styles.entryIcon} resizeMode="contain" />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={{ flexDirection: 'row', gap: 7, alignItems: 'baseline' }}>
+                <Text style={styles.entryColorName}>{e.color.name}</Text>
+                <Text style={styles.entryDate}>{e.entryDate}</Text>
               </View>
-            </Pressable>
-          );
-        })}
+              <Text style={styles.entrySnippet} numberOfLines={1}>{e.answerText}</Text>
+            </View>
+          </Pressable>
+        ))}
       </View>
 
       {hasNextPage && (

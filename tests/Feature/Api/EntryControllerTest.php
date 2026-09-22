@@ -32,7 +32,7 @@ it('creates today\'s entry with a picked question', function () {
     $response = $this->postJson('/api/entries', ['color_id' => $color->id]);
 
     $response->assertCreated();
-    $response->assertJsonStructure(['entry' => ['id', 'color', 'question' => ['id', 'text', 'quadrant']]]);
+    $response->assertJsonStructure(['entry' => ['id', 'color' => ['id', 'name', 'hex', 'icon'], 'question' => ['id', 'text', 'quadrant']]]);
 });
 
 it('rejects a second entry the same day with 409', function () {

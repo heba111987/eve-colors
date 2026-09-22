@@ -11,7 +11,12 @@ class UserResponseResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'color' => $this->color->name,
+            'color' => [
+                'id' => $this->color->id,
+                'name' => $this->color->name,
+                'hex' => $this->color->hex,
+                'icon' => $this->color->icon,
+            ],
             'answerText' => $this->answer_text,
             'activityCompleted' => $this->activity_completed,
             'entryDate' => $this->entry_date->toDateString(),
@@ -22,12 +27,12 @@ class UserResponseResource extends JsonResource
                 'text' => $this->question->text,
                 'quadrant' => $this->question->quadrant->value,
             ],
-            'activity' => $this->when($this->activity_id !== null, fn () => [
+            'activity' => $this->activity_id !== null ? [
                 'id' => $this->activity->id,
                 'text' => $this->activity->text,
                 'note' => $this->activity->note,
                 'quadrant' => $this->activity->quadrant->value,
-            ]),
+            ] : null,
         ];
     }
 }

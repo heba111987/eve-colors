@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "client",
-    "slug": "client",
+    "name": "Eve Colors",
+    "slug": "eve-colors",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "client",
+    "scheme": "evecolors",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true

@@ -432,6 +432,57 @@ In the `'activity' => $this->when(...)` block, add `'note' => $this->activity->n
 ]),
 ```
 
+(A later whole-branch review fix pass changed `'color'` from a bare
+`$this->color->name` string to a self-describing
+`{id, name, hex, icon}` object, and changed the `'activity'` field above
+from `$this->when(...)` — which omits the key entirely when there's no
+activity — to an unconditional ternary that emits `null`, so the key
+matches the client's `{...} | null` type at runtime. See the final file
+below.)
+
+Final file:
+
+```php
+<?php
+
+namespace App\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+class UserResponseResource extends JsonResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'color' => [
+                'id' => $this->color->id,
+                'name' => $this->color->name,
+                'hex' => $this->color->hex,
+                'icon' => $this->color->icon,
+            ],
+            'answerText' => $this->answer_text,
+            'activityCompleted' => $this->activity_completed,
+            'entryDate' => $this->entry_date->toDateString(),
+            'flowerX' => $this->flower_x,
+            'flowerY' => $this->flower_y,
+            'question' => [
+                'id' => $this->question->id,
+                'text' => $this->question->text,
+                'quadrant' => $this->question->quadrant->value,
+            ],
+            'activity' => $this->activity_id !== null ? [
+                'id' => $this->activity->id,
+                'text' => $this->activity->text,
+                'note' => $this->activity->note,
+                'quadrant' => $this->activity->quadrant->value,
+            ] : null,
+        ];
+    }
+}
+```
+
 - [ ] **Step 4: Update `index()` in `app/Http/Controllers/Api/EntryController.php`**
 
 Add a total count alongside the existing paginated query. The count must be scoped identically to the paginated query (same `user_id` filter, no cursor applied) so it reflects the true all-time total, not the current page:
@@ -1142,9 +1193,16 @@ Shape copied exactly from `App\Http\Resources\UserResponseResource`:
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../apiClient';
 
+export interface EntryColor {
+  id: number;
+  name: string;
+  hex: string;
+  icon: string;
+}
+
 export interface Entry {
   id: number;
-  color: string;
+  color: EntryColor;
   answerText: string | null;
   activityCompleted: boolean;
   entryDate: string;
@@ -1218,6 +1276,7 @@ export function useCreateEntry() {
     mutationFn: (colorId: number) => apiClient.post<{ entry: Entry }>('/api/entries', { color_id: colorId }).then((r) => r.entry),
     onSuccess: (entry) => {
       queryClient.setQueryData(['today'], entry);
+      queryClient.invalidateQueries({ queryKey: ['entries'] });
     },
   });
 }
@@ -1229,6 +1288,7 @@ export function useSubmitAnswer() {
       apiClient.patch<{ entry: Entry }>(`/api/entries/${id}`, { answer }).then((r) => r.entry),
     onSuccess: (entry) => {
       queryClient.setQueryData(['today'], entry);
+      queryClient.invalidateQueries({ queryKey: ['entries'] });
     },
   });
 }
@@ -1244,6 +1304,7 @@ export function useRerollActivity() {
       queryClient.setQueryData(['today'], (current: Entry | null | undefined) =>
         current && current.id === id ? { ...current, activity: result.activity } : current,
       );
+      queryClient.invalidateQueries({ queryKey: ['entries'] });
     },
   });
 }
@@ -1689,7 +1750,7 @@ function DoneStage({ entry }: { entry: NonNullable<ReturnType<typeof useToday>['
       <Image source={require('../../assets/images/lotus-peach.png')} style={{ width: 150, height: 150 }} resizeMode="contain" />
       <Text style={[styles.h2, { marginTop: theme.space[4], textAlign: 'center' }]}>Already planted today.</Text>
       <Text style={[styles.subtitle, { textAlign: 'center' }]}>
-        {entry.color} — {entry.activity?.text ?? 'Today’s task'}. Come back tomorrow for the next one.
+        {entry.color.name} — {entry.activity?.text ?? 'Today’s task'}. Come back tomorrow for the next one.
       </Text>
       <Button title="See my garden" onPress={() => router.replace('/garden')} style={{ marginTop: theme.space[6], width: '100%' }} />
     </View>
@@ -1895,7 +1956,6 @@ The garden scene renders each entry's flower at its actual server-assigned `flow
 import { router } from 'expo-router';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useEntries } from '../../../lib/hooks/useEntries';
-import { useColors } from '../../../lib/hooks/useColors';
 import { iconSource } from '../../../lib/icons';
 import { theme } from '../../../lib/theme';
 import { Button } from '../../../components/Button';
@@ -1904,9 +1964,7 @@ const SCENE_HEIGHT = 220;
 
 export default function Garden() {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useEntries();
-  const { data: colors } = useColors();
 
-  const colorsByName = new Map((colors ?? []).map((c) => [c.name, c]));
   const entries = (data?.pages ?? []).flatMap((p) => p.entries);
   const total = data?.pages[0]?.total ?? 0;
   const planted = entries.filter(
@@ -1921,39 +1979,33 @@ export default function Garden() {
       <Text style={styles.subtitle}>{total} {total === 1 ? 'day' : 'days'}, all yours. Tap any flower to read it back.</Text>
 
       <View style={styles.scene}>
-        {planted.map((e) => {
-          const color = colorsByName.get(e.color);
-          return (
-            <Pressable
-              key={e.id}
-              onPress={() => router.push(`/garden/${e.id}`)}
-              style={[
-                styles.flower,
-                { left: `${e.flowerX}%`, top: `${e.flowerY}%` },
-              ]}
-            >
-              <Image source={iconSource(color?.icon ?? 'lotus-sage.png')} style={styles.flowerIcon} resizeMode="contain" />
-            </Pressable>
-          );
-        })}
+        {planted.map((e) => (
+          <Pressable
+            key={e.id}
+            onPress={() => router.push(`/garden/${e.id}`)}
+            style={[
+              styles.flower,
+              { left: `${e.flowerX}%`, top: `${e.flowerY}%` },
+            ]}
+          >
+            <Image source={iconSource(e.color.icon)} style={styles.flowerIcon} resizeMode="contain" />
+          </Pressable>
+        ))}
       </View>
 
       <View style={{ gap: 10, marginTop: theme.space[6] }}>
-        {entries.map((e) => {
-          const color = colorsByName.get(e.color);
-          return (
-            <Pressable key={e.id} onPress={() => router.push(`/garden/${e.id}`)} style={styles.entryRow}>
-              <Image source={iconSource(color?.icon ?? 'lotus-sage.png')} style={styles.entryIcon} resizeMode="contain" />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <View style={{ flexDirection: 'row', gap: 7, alignItems: 'baseline' }}>
-                  <Text style={styles.entryColorName}>{e.color}</Text>
-                  <Text style={styles.entryDate}>{e.entryDate}</Text>
-                </View>
-                <Text style={styles.entrySnippet} numberOfLines={1}>{e.answerText}</Text>
+        {entries.map((e) => (
+          <Pressable key={e.id} onPress={() => router.push(`/garden/${e.id}`)} style={styles.entryRow}>
+            <Image source={iconSource(e.color.icon)} style={styles.entryIcon} resizeMode="contain" />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={{ flexDirection: 'row', gap: 7, alignItems: 'baseline' }}>
+                <Text style={styles.entryColorName}>{e.color.name}</Text>
+                <Text style={styles.entryDate}>{e.entryDate}</Text>
               </View>
-            </Pressable>
-          );
-        })}
+              <Text style={styles.entrySnippet} numberOfLines={1}>{e.answerText}</Text>
+            </View>
+          </Pressable>
+        ))}
       </View>
 
       {hasNextPage && (
@@ -1981,6 +2033,12 @@ const styles = StyleSheet.create({
   footnote: { fontFamily: theme.font.body, fontSize: 12, color: theme.colors.neutral600, textAlign: 'center', marginTop: theme.space[6] },
 });
 ```
+
+(A later whole-branch review fix pass dropped the `useColors`/`colorsByName`
+join entirely — `UserResponseResource.color` was changed from a bare name
+string to a self-describing `{id, name, hex, icon}` object, so each entry
+now carries its own icon and survives a color being renamed or retired
+after the fact. The file above reflects that final shape.)
 
 (`left`/`top` as percentage strings are valid React Native Web style values for an absolutely-positioned child of a `position: relative` parent with a fixed height — this works today on the web target this phase targets; a future native build would need `onLayout` to convert percentages to pixel offsets instead, since React Native's `View` doesn't support percentage `top`/`left` on non-web platforms the same way. Not a concern for this phase.)
 
@@ -2052,27 +2110,39 @@ const styles = StyleSheet.create({
 - [ ] **Step 2: Write `client/app/(app)/garden/[id].tsx`**
 
 ```tsx
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { useEntries } from '../../../lib/hooks/useEntries';
-import { useColors } from '../../../lib/hooks/useColors';
 import { useDeleteEntry } from '../../../lib/hooks/useEntryMutations';
 import { iconSource } from '../../../lib/icons';
 import { theme } from '../../../lib/theme';
 
 export default function EntryDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { data } = useEntries();
-  const { data: colors } = useColors();
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useEntries();
   const deleteEntry = useDeleteEntry();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const entry = (data?.pages ?? []).flatMap((p) => p.entries).find((e) => String(e.id) === id);
-  const color = colors?.find((c) => c.name === entry?.color);
+  const entries = (data?.pages ?? []).flatMap((p) => p.entries);
+  const entry = entries.find((e) => String(e.id) === id);
+
+  useEffect(() => {
+    if (!isLoading && !entry && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [isLoading, entry, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  if (isLoading || (!entry && hasNextPage)) {
+    return (
+      <View style={[styles.screen, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator color={theme.colors.accent500} />
+      </View>
+    );
+  }
 
   if (!entry) {
     return (
@@ -2096,8 +2166,8 @@ export default function EntryDetail() {
       <Button title="Garden" variant="secondary" onPress={() => router.replace('/garden')} style={{ alignSelf: 'flex-start' }} />
 
       <View style={{ alignItems: 'center', marginVertical: theme.space[6] }}>
-        <Image source={iconSource(color?.icon ?? 'lotus-sage.png')} style={{ width: 150, height: 150 }} resizeMode="contain" />
-        <Text style={styles.colorName}>{entry.color}</Text>
+        <Image source={iconSource(entry.color.icon)} style={{ width: 150, height: 150 }} resizeMode="contain" />
+        <Text style={styles.colorName}>{entry.color.name}</Text>
         <Text style={styles.date}>{entry.entryDate}</Text>
       </View>
 
@@ -2143,6 +2213,18 @@ const styles = StyleSheet.create({
   taskDoneText: { fontFamily: theme.font.body, fontSize: 14, color: theme.colors.text },
 });
 ```
+
+(A later whole-branch review fix pass changed this screen in two ways: (1)
+color is now self-describing on each entry — `UserResponseResource.color`
+became a `{id, name, hex, icon}` object, so the `useColors()` join and
+`colors?.find(...)` lookup were dropped entirely; (2) the screen now reads
+`isLoading`/`fetchNextPage`/`hasNextPage`/`isFetchingNextPage` from
+`useEntries()` and shows a loading spinner while page 1 is in flight,
+auto-paging forward via `useEffect` until the requested entry is found or
+pagination is exhausted — the original version had no loading guard and no
+pagination-follow, so a page refresh or a deep link to an entry past page 1
+would flash or permanently show "This entry is no longer available." The
+file above reflects that final shape.)
 
 (Both navigation calls use `router.replace('/garden')`, not `router.back()`, despite this being conceptually a "go back" action. Verified directly: on web, `garden/[id]` is registered as a hidden sibling `Tabs.Screen` (Task 8's `_layout.tsx`, `href: null`) rather than nested in a stack under the Garden tab — tab switches don't push a distinct browser-history entry the way a genuine stack push does, so `router.back()` from this screen pops past the Garden tab entirely and lands on Today instead, regardless of which tab the user actually came from. `router.replace('/garden')` sidesteps the ambiguity entirely by always landing on the correct screen, at the minor, acceptable cost of not preserving the garden list's scroll position the way a true back-navigation would.)
 

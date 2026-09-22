@@ -8,6 +8,7 @@ export function useCreateEntry() {
     mutationFn: (colorId: number) => apiClient.post<{ entry: Entry }>('/api/entries', { color_id: colorId }).then((r) => r.entry),
     onSuccess: (entry) => {
       queryClient.setQueryData(['today'], entry);
+      queryClient.invalidateQueries({ queryKey: ['entries'] });
     },
   });
 }
@@ -19,6 +20,7 @@ export function useSubmitAnswer() {
       apiClient.patch<{ entry: Entry }>(`/api/entries/${id}`, { answer }).then((r) => r.entry),
     onSuccess: (entry) => {
       queryClient.setQueryData(['today'], entry);
+      queryClient.invalidateQueries({ queryKey: ['entries'] });
     },
   });
 }
@@ -34,6 +36,7 @@ export function useRerollActivity() {
       queryClient.setQueryData(['today'], (current: Entry | null | undefined) =>
         current && current.id === id ? { ...current, activity: result.activity } : current,
       );
+      queryClient.invalidateQueries({ queryKey: ['entries'] });
     },
   });
 }

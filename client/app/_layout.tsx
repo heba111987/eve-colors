@@ -28,7 +28,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   if (signedIn && !consented && pathname !== '/consent') {
     return <Redirect href="/consent" />;
   }
-  if (signedIn && consented && (pathname === '/sign-in' || pathname === '/consent')) {
+  if (signedIn && consented && (pathname === '/sign-in' || pathname === '/consent' || pathname === '/')) {
     return <Redirect href="/today" />;
   }
 

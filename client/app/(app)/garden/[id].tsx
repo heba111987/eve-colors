@@ -1,24 +1,36 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { useEntries } from '../../../lib/hooks/useEntries';
-import { useColors } from '../../../lib/hooks/useColors';
 import { useDeleteEntry } from '../../../lib/hooks/useEntryMutations';
 import { iconSource } from '../../../lib/icons';
 import { theme } from '../../../lib/theme';
 
 export default function EntryDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { data } = useEntries();
-  const { data: colors } = useColors();
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useEntries();
   const deleteEntry = useDeleteEntry();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const entry = (data?.pages ?? []).flatMap((p) => p.entries).find((e) => String(e.id) === id);
-  const color = colors?.find((c) => c.name === entry?.color);
+  const entries = (data?.pages ?? []).flatMap((p) => p.entries);
+  const entry = entries.find((e) => String(e.id) === id);
+
+  useEffect(() => {
+    if (!isLoading && !entry && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [isLoading, entry, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  if (isLoading || (!entry && hasNextPage)) {
+    return (
+      <View style={[styles.screen, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator color={theme.colors.accent500} />
+      </View>
+    );
+  }
 
   if (!entry) {
     return (
@@ -42,8 +54,8 @@ export default function EntryDetail() {
       <Button title="Garden" variant="secondary" onPress={() => router.replace('/garden')} style={{ alignSelf: 'flex-start' }} />
 
       <View style={{ alignItems: 'center', marginVertical: theme.space[6] }}>
-        <Image source={iconSource(color?.icon ?? 'lotus-sage.png')} style={{ width: 150, height: 150 }} resizeMode="contain" />
-        <Text style={styles.colorName}>{entry.color}</Text>
+        <Image source={iconSource(entry.color.icon)} style={{ width: 150, height: 150 }} resizeMode="contain" />
+        <Text style={styles.colorName}>{entry.color.name}</Text>
         <Text style={styles.date}>{entry.entryDate}</Text>
       </View>
 

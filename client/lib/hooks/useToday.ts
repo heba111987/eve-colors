@@ -1,9 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../apiClient';
 
+export interface EntryColor {
+  id: number;
+  name: string;
+  hex: string;
+  icon: string;
+}
+
 export interface Entry {
   id: number;
-  color: string;
+  color: EntryColor;
   answerText: string | null;
   activityCompleted: boolean;
   entryDate: string;

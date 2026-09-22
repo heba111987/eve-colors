@@ -46,11 +46,11 @@ score or diagnosis.
 - **Analytics** — PostHog Cloud, EU region, loaded only for users who
   opt in (client-side integration is part of the future client app).
 
-Planned repo layout once the client app lands:
+Repo layout:
 
 ```
 /                — Laravel app (this repo's root)
-/client          — Expo app (web + iOS + Android from one codebase) — not built yet
+/client          — Expo web client (iOS/Android planned, not yet built)
 ```
 
 ## Local development
@@ -71,9 +71,9 @@ no setup needed).
 Server-side phase complete: Laravel API (Google SSO for web + mobile, the
 full daily color→question→activity→garden flow, GDPR account deletion,
 consent enforcement) and the Filament admin panel (Users, Colors,
-Questions, Activities, and a view-only Daily Entries resource). No client
-app exists yet — that's the next phase, built with Expo so the same
-codebase targets web, iOS, and Android.
+Questions, Activities, and a view-only Daily Entries resource). The Expo
+web client is also built — see `client/README.md` for its local dev setup.
+iOS/Android builds from the same codebase are the next phase.
 
 ## Deployment (owner responsibility, not run from this codebase)
 
