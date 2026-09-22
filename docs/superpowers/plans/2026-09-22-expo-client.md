@@ -1614,7 +1614,7 @@ This is the largest single screen: one route, four internal stages (`color` / `q
 ```tsx
 import { useEffect, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming, Easing } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming, Easing } from 'react-native-reanimated';
 import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
 import { useToday } from '../../lib/hooks/useToday';
