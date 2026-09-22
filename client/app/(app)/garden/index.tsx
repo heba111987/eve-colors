@@ -15,7 +15,9 @@ export default function Garden() {
   const colorsByName = new Map((colors ?? []).map((c) => [c.name, c]));
   const entries = (data?.pages ?? []).flatMap((p) => p.entries);
   const total = data?.pages[0]?.total ?? 0;
-  const planted = entries.filter((e) => e.flowerX !== null && e.flowerY !== null);
+  const planted = entries.filter(
+    (e): e is typeof e & { flowerX: number; flowerY: number } => e.flowerX !== null && e.flowerY !== null,
+  );
 
   if (isLoading) return null;
 
