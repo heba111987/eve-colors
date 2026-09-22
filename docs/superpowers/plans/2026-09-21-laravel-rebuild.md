@@ -442,9 +442,9 @@ class UserResponse extends Model
 
 - [ ] **Step 6: Update `app/Models/User.php`**
 
-Add to `$fillable`: `'google_id', 'avatar_url', 'consent_accepted_at', 'analytics_marketing_consent_at', 'is_admin'`.
+Add to `$fillable`: `'google_id', 'avatar_url'` only. **Do NOT add `is_admin`, `consent_accepted_at`, or `analytics_marketing_consent_at` to `$fillable`** — these are privilege/consent-relevant fields, and putting them in `$fillable` is a mass-assignment vector (a future endpoint that naively does `$user->update($request->validate([...]))` with a too-broad validated array could let a user grant themselves admin). Every place these three fields are actually set in this plan uses direct property assignment (`$user->is_admin = ...`, `$user->consent_accepted_at = ...`) or `forceFill()`, never `fill()`/`create()`/`update()` with raw request input — direct property assignment always works regardless of `$fillable`, so this restriction costs nothing functionally. (Task 9's `MeController::updateConsent` already uses direct property assignment, so it's unaffected by this. Task 16's Filament admin toggle needs one explicit adjustment for the same reason — see that task's notes.)
 
-Add to `$casts` (inside the `casts()` method Laravel 13 generates, or the `$casts` property — match whatever style the freshly-scaffolded file already uses): `'consent_accepted_at' => 'datetime', 'analytics_marketing_consent_at' => 'datetime', 'is_admin' => 'boolean'`.
+Add to `$casts` (inside the `casts()` method Laravel 13 generates, or the `$casts` property — match whatever style the freshly-scaffolded file already uses): `'consent_accepted_at' => 'datetime', 'analytics_marketing_consent_at' => 'datetime', 'is_admin' => 'boolean'`. (Casts are unrelated to mass-assignment safety — keep all three here regardless of the `$fillable` change above.)
 
 Add a relation:
 
@@ -2573,12 +2573,15 @@ public function canAccessPanel(Panel $panel): bool
 
 - [ ] **Step 3: Add an `admin()` state to `database/factories/UserFactory.php`**
 
-Add this method to the factory class (alongside whatever states Laravel 13 scaffolds by default, e.g. `unverified()`):
+Add this method to the factory class (alongside whatever states Laravel 13 scaffolds by default, e.g. `unverified()`). Note this uses `afterCreating()` with direct property assignment rather than `state()`: `state()` merges into the attributes array that gets passed through the model's constructor, which respects `$fillable` — and since `is_admin` was deliberately removed from `User`'s fillable list in Task 2, a `state()`-based override would be silently dropped:
 
 ```php
 public function admin(): static
 {
-    return $this->state(fn (array $attributes) => ['is_admin' => true]);
+    return $this->afterCreating(function (User $user) {
+        $user->is_admin = true;
+        $user->save();
+    });
 }
 ```
 
@@ -2593,7 +2596,10 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 uses(RefreshDatabase::class);
 
 it('denies panel access to a non-admin user', function () {
-    $user = User::factory()->create(['is_admin' => false]);
+    // No need to pass is_admin explicitly — the users.is_admin column
+    // defaults to false (Task 2's migration), and passing it here would hit
+    // the same fillable restriction the admin() factory state works around.
+    $user = User::factory()->create();
     $this->actingAs($user);
 
     $response = $this->get('/admin');
@@ -2621,13 +2627,15 @@ Expected: FAIL — before `canAccessPanel` is implemented, Filament's default (d
 Run: `php artisan test --filter=PanelAccessTest`
 Expected: PASS — both tests green.
 
-- [ ] **Step 7: Generate the UserResource (list/view only — no create/edit form beyond `is_admin`)**
+- [ ] **Step 7: Generate the UserResource (list + edit-only-`is_admin` — no create, no editing name/email/other user data)**
 
 ```bash
-php artisan make:filament-resource User --view
+php artisan make:filament-resource User
 ```
 
-If `--view` isn't a recognized flag on the installed Filament version (`php artisan make:filament-resource --help` will show the real flag list), generate normally instead (`php artisan make:filament-resource User`) and manually delete the generated `app/Filament/Resources/UserResource/Pages/CreateUser.php` and `EditUser.php` files plus their references in `UserResource::getPages()`, leaving only `ListUsers` (and a `ViewUser` page if one was generated).
+(No `--view`/`--generate` flag here — this resource genuinely needs one editable field, `is_admin`, so it needs a real Edit page, just a deliberately narrow one. `--view` would generate no Edit page at all, which was an inconsistency in an earlier draft of this task — worth knowing if you're comparing against an older version of this plan.)
+
+Delete the generated `app/Filament/Resources/UserResource/Pages/CreateUser.php` and remove its reference from `UserResource::getPages()` — admins are never created through this panel, only via Google sign-in (a `google_id` is required, so a blank "create user" form wouldn't produce a usable account anyway).
 
 Open the generated `app/Filament/Resources/UserResource.php` and replace its `table()` method with:
 
@@ -2646,7 +2654,7 @@ public static function table(Table $table): Table
 }
 ```
 
-Add `use Filament\Tables\Table;` and `use Filament\Tables;` imports if not already present from the generated file. In the generated `form()` method, keep only the `is_admin` toggle (remove any other fields the generator scaffolded for `name`/`email`/`password`, since this resource is deliberately not for editing user data):
+Add `use Filament\Tables\Table;` and `use Filament\Tables;` imports if not already present from the generated file. Replace the generated `form()` method entirely (remove whatever fields the generator scaffolded for `name`/`email`/`password` — this resource is deliberately not for editing user profile data, only admin status):
 
 ```php
 public static function form(Form $form): Form
@@ -2656,6 +2664,20 @@ public static function form(Form $form): Form
     ]);
 }
 ```
+
+`is_admin` was deliberately removed from `User`'s `$fillable`/`#[Fillable(...)]` in Task 2 (mass-assignment safety — see that task's note). Filament's default `EditRecord` page saves via mass assignment, so it would silently fail to persist this toggle otherwise. Open the generated `app/Filament/Resources/UserResource/Pages/EditUser.php` and add this method to bypass mass assignment for just this one, already-admin-gated field:
+
+```php
+protected function handleRecordUpdate(\Illuminate\Database\Eloquent\Model $record, array $data): \Illuminate\Database\Eloquent\Model
+{
+    $record->is_admin = (bool) ($data['is_admin'] ?? $record->is_admin);
+    $record->save();
+
+    return $record;
+}
+```
+
+(This is safe precisely because reaching this page at all already requires `canAccessPanel()` to have returned `true` for the current user — i.e. they're already an admin. It's a controlled, gated write path, unlike a public API endpoint.)
 
 - [ ] **Step 8: Generate the ColorResource with full CRUD**
 
