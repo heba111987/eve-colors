@@ -2505,10 +2505,10 @@ Append these methods:
 public function index(Request $request): JsonResponse
 {
     $limit = 20;
-    $query = UserResponse::where('user_id', $request->user()->id)->orderByDesc('created_at');
+    $query = UserResponse::where('user_id', $request->user()->id)->orderByDesc('id');
 
     if ($cursor = $request->query('cursor')) {
-        $query->where('created_at', '<', $cursor);
+        $query->where('id', '<', $cursor);
     }
 
     $rows = $query->limit($limit + 1)->get();
@@ -2517,10 +2517,14 @@ public function index(Request $request): JsonResponse
 
     return response()->json([
         'entries' => UserResponseResource::collection($page->values()),
-        'nextCursor' => $hasMore ? $page->last()->created_at->toISOString() : null,
+        'nextCursor' => $hasMore ? (string) $page->last()->id : null,
     ]);
 }
+```
 
+(Cursors on `created_at` are a real trap here: it's a plain Eloquent timestamp with second-level precision, and the brief's own "paginates with a cursor" test creates 25 rows for one user in a tight loop — verified directly in this environment that they land on the exact same stored second, making a strict `created_at < $cursor` comparison either match nothing or match everything at that boundary depending on formatting, not a reliable "not yet seen" filter. There's also a subtler bug a naive fix wouldn't catch: `Carbon::toISOString()` formats as `Y-m-d\TH:i:s.u\Z` (`T` separator), while Eloquent stores timestamps as `Y-m-d H:i:s` (space separator) — since `' ' < 'T'` in ASCII, a same-day stored value always compares as "less than" an ISO cursor for that day regardless of actual time order, silently breaking the "less than cursor" filter into a no-op. `id` sidesteps both problems: it's already unique and strictly monotonic with insertion order, needs no format reconciliation, and requires no schema change.)
+
+```php
 public function destroy(Request $request, int $id): JsonResponse
 {
     $deleted = UserResponse::where('id', $id)->where('user_id', $request->user()->id)->delete();
