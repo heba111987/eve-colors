@@ -2,6 +2,7 @@
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
 
@@ -40,4 +41,36 @@ it('stamps consentAcceptedAt once and lets analytics consent be toggled afterwar
     $user->refresh();
     expect($user->consent_accepted_at->equalTo($firstAcceptedAt))->toBeTrue();
     expect($user->analytics_marketing_consent_at)->toBeNull();
+});
+
+it('deletes the account, cascades entries and tokens, and reports the PostHog purge outcome', function () {
+    Http::fake([
+        'eu.posthog.com/*' => Http::response(['results' => []]),
+    ]);
+
+    $user = User::factory()->create();
+    $newToken = $user->createToken('test');
+    $tokenId = $newToken->accessToken->id;
+
+    $response = $this->withHeader('Authorization', "Bearer {$newToken->plainTextToken}")->deleteJson('/api/me');
+
+    $response->assertOk();
+    $response->assertJson(['ok' => true, 'analyticsPurged' => true]);
+    expect(User::find($user->id))->toBeNull();
+    expect(\Laravel\Sanctum\PersonalAccessToken::find($tokenId))->toBeNull();
+});
+
+it('still deletes the account when the PostHog purge fails', function () {
+    Http::fake([
+        'eu.posthog.com/*' => Http::response(null, 500),
+    ]);
+
+    $user = User::factory()->create();
+    $token = $user->createToken('test')->plainTextToken;
+
+    $response = $this->withHeader('Authorization', "Bearer {$token}")->deleteJson('/api/me');
+
+    $response->assertOk();
+    $response->assertJson(['ok' => true, 'analyticsPurged' => false]);
+    expect(User::find($user->id))->toBeNull();
 });

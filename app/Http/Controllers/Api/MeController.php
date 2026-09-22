@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\SessionUserResource;
+use App\Services\PostHogClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -24,5 +25,16 @@ class MeController extends Controller
         $user->save();
 
         return response()->json(['ok' => true]);
+    }
+
+    public function destroy(Request $request, PostHogClient $postHog): JsonResponse
+    {
+        $user = $request->user();
+        $analyticsPurged = $postHog->deletePerson($user->email);
+
+        $user->tokens()->delete();
+        $user->delete();
+
+        return response()->json(['ok' => true, 'analyticsPurged' => $analyticsPurged]);
     }
 }

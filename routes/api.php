@@ -17,4 +17,5 @@ Route::middleware('auth:sanctum')->post('/logout', LogoutController::class);
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [MeController::class, 'show']);
     Route::post('/me/consent', [MeController::class, 'updateConsent']);
+    Route::delete('/me', [MeController::class, 'destroy']);
 });
