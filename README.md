@@ -1,122 +1,92 @@
 # Eve Colors
 
-Eve Colors is a wellness web app for a quick daily check-in: pick a
-color that matches how you feel, answer a short reflection question,
-then get a small suggested task to do. Over time, a private timeline
-("My Garden") shows the colors, questions, answers, and tasks from
-every day you've shown up.
+Eve Colors is a wellness journaling app for a quick daily check-in: pick a
+color that matches how you feel, answer a short reflection question, then
+get a small suggested activity to do. Completing a day's activity plants a
+flower in your private garden, at its own spot.
 
 **Eve Colors is a wellness tool, not a medical device.** It does not
-provide medical advice, diagnosis, or treatment. It's designed
-primarily for women, as a lightweight, non-clinical way to check in
-with yourself.
-
-> This repo is mid-migration off Wix onto Cloudflare. See
-> [`docs/superpowers/specs/2026-09-18-cloudflare-rebuild-design.md`](docs/superpowers/specs/2026-09-18-cloudflare-rebuild-design.md)
-> for the full design spec this README summarizes.
+provide medical advice, diagnosis, or treatment.
 
 ## How it works
 
-1. **Pick a color.** One of 11 preset colors, used as a mood label for
-   the day — it doesn't change which question you get.
-2. **Answer a question.** Drawn at random from a growing question
-   bank, with a rule that you won't see the same question again within
-   7 days.
-3. **Do a small task.** After answering, the app suggests a random
-   task (e.g. take a walk, meditate) — you can ask for a different one
-   before committing.
-4. **Look back anytime.** "My Garden" is a scrollable timeline of every
-   day's color, question, answer, and task.
+1. **Pick a color** — a mood label for the day (11 presets, admin-editable).
+2. **Answer a question** — drawn at random from a growing bank, never
+   repeating within 7 days.
+3. **Do a small activity** — suggested at random after answering; you can
+   ask for a different one before committing.
+4. **Watch your garden grow** — completing an activity plants a flower at
+   a server-assigned spot in your garden.
 
-One entry per day. Every question and task is tagged to one of four
-wellness quadrants — **mental, physical, emotional, spiritual** — so
-the app can (eventually) reflect back how balanced your check-ins are
-across those areas. This is descriptive only; it's not a score,
-diagnosis, or recommendation engine.
+Every question and activity is tagged to one of four wellness quadrants —
+**mental, physical, emotional, spiritual** — purely descriptive, not a
+score or diagnosis.
 
 ## Privacy & GDPR
 
-- We collect your Google account email and name to run your account —
-  nothing more is required to use the app.
-- Analytics (PostHog, EU region) and marketing email are **opt-in**,
-  off by default, and separate from the required terms you accept to
-  use the app. We never sell your email address.
-- Deleting your account permanently removes all your entries and your
-  account record, and purges your analytics data too — full deletion,
-  not a soft "deactivate."
+- We collect your Google account email and name to run your account.
+- Analytics (PostHog, EU region) and marketing email are **opt-in**, off
+  by default, separate from the required terms you accept to use the app.
+  We never sell your email address.
+- Deleting your account permanently removes your entries and account
+  record, and purges your analytics data too.
 
 ## Framework overview
 
-The app is being rebuilt from Wix onto Cloudflare:
+- **Backend** — [Laravel 13](https://laravel.com), REST API + [Filament](https://filamentphp.com)
+  admin panel (`/admin`), one codebase.
+- **Auth** — [Socialite](https://laravel.com/docs/socialite) (Google SSO,
+  web) + [Sanctum](https://laravel.com/docs/sanctum) (API auth — cookie
+  for web, bearer token for the future mobile app; both behind one
+  `auth:sanctum` guard).
+- **Database** — MySQL in production (Laravel Cloud managed), SQLite
+  in-memory for tests.
+- **Hosting** — [Laravel Cloud](https://cloud.laravel.com), connected
+  directly to this repo.
+- **Analytics** — PostHog Cloud, EU region, loaded only for users who
+  opt in (client-side integration is part of the future client app).
 
-- **Frontend** — [React](https://react.dev) + [React Router](https://reactrouter.com),
-  built with [Vite](https://vitejs.dev), deployed on
-  [Cloudflare Pages](https://pages.cloudflare.com/). Chosen over a plain
-  static site because a React Native mobile app is coming soon after —
-  React on web now means shared patterns (and a shared API client/types
-  package) rather than a rewrite later.
-- **API** — a [Cloudflare Worker](https://workers.cloudflare.com/)
-  using [Hono](https://hono.dev) for routing, handling auth and all
-  data access. This is the one backend both the web app and the future
-  mobile app call — no separate "app API," no second data store.
-- **Database** — [Cloudflare D1](https://developers.cloudflare.com/d1/)
-  (SQLite), storing users, sessions, questions, tasks, and entries.
-- **Auth** — Google Sign-In (OAuth 2.0) implemented directly in the
-  Worker; no third-party auth vendor, so all account data (including
-  deletion) stays in one system. Sessions work as either a browser
-  cookie (web) or a bearer token (mobile, ready ahead of the app itself).
-- **Analytics** — [PostHog](https://posthog.com) Cloud, EU region,
-  loaded only for users who opt in.
+Planned repo layout once the client app lands:
 
-/worker      — Hono API, D1 schema/migrations, seed content
-/shared      — API client + types, shared with the web app now and the
-               React Native app later
-/web         — Vite + React + React Router site
+```
+/                — Laravel app (this repo's root)
+/client          — Expo app (web + iOS + Android from one codebase) — not built yet
+```
+
+## Local development
+
+1. `composer install`
+2. `cp .env.example .env && php artisan key:generate`
+3. Fill in `.env`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `POSTHOG_PROJECT_ID`,
+   `POSTHOG_DELETION_API_KEY` — a real Google Cloud OAuth client and PostHog EU project
+   are the repo owner's setup steps, not something run from this codebase.
+4. `php artisan migrate --seed`
+5. `php artisan serve`
+
+Run the test suite with `php artisan test` (uses an in-memory SQLite database,
+no setup needed).
 
 ## Status
 
-Core implementation complete: Worker API (cookie *and* bearer-token
-Google auth, entries, consent, account deletion), D1 schema and seed
-content, a `@eve-colors/shared` package (API client + types ready for
-the upcoming React Native app), and a rough-prototype React web app
-(Vite + React Router — visual design is being redone separately).
+Server-side phase complete: Laravel API (Google SSO for web + mobile, the
+full daily color→question→activity→garden flow, GDPR account deletion,
+consent enforcement) and the Filament admin panel (Users, Colors,
+Questions, Activities, and a view-only Daily Entries resource). No client
+app exists yet — that's the next phase, built with Expo so the same
+codebase targets web, iOS, and Android.
 
-To run locally:
+## Deployment (owner responsibility, not run from this codebase)
 
-1. `npm install`
-2. `cp worker/.dev.vars.example worker/.dev.vars` and fill in real values
-   (Google OAuth client credentials, a PostHog personal API key).
-3. `npm run db:migrate:local`
-4. `npm run dev:worker` (in one terminal) and `npm run dev:web` (in another)
-5. Open `http://localhost:8788`
-
-## Deploying
-
-> **Required before every production deploy — edit `web/src/lib/api.ts`.**
-> That file currently holds local-development placeholders, and nothing
-> in the build will warn you if you ship them:
->
-> - `API_BASE` is `'http://localhost:8787'` — change it to the real API
->   URL, `https://api.<your-domain>`. If you skip this, the deployed
->   site will try to call your own laptop and nothing will load for
->   anyone.
-> - `POSTHOG_EU_PROJECT_KEY` is `'REPLACE_WITH_POSTHOG_PUBLIC_KEY'` —
->   change it to the real PostHog **public project API key** from your
->   EU-region PostHog project. If you skip this, analytics silently
->   records nothing.
->
-> Make both edits first, then run `npm run build:web` and deploy — a
-> build made before the edit still contains the placeholders.
-
-Then:
-
-1. `npm run build:web`
-2. `wrangler pages deploy web/dist` (the `/web` build output) for the
-   frontend
-3. `npm run deploy:worker` (`wrangler deploy`) for the API
-
-See the design spec for the remaining deployment steps (DNS,
-`wrangler d1 create` and migrations, `wrangler secret put` for
-`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` /
-`POSTHOG_DELETION_API_KEY`, PostHog project setup) — those remain the
-repo owner's responsibility, not something run from this codebase.
+1. Create a Google Cloud OAuth client (External consent screen), authorized
+   redirect URI = production `/auth/google/callback` URL.
+2. Create/confirm the PostHog Cloud project (EU region) and its API keys.
+3. Connect this repo to [Laravel Cloud](https://cloud.laravel.com);
+   provision a MySQL resource.
+4. Set environment secrets on Laravel Cloud: `GOOGLE_CLIENT_ID`,
+   `GOOGLE_CLIENT_SECRET`, `POSTHOG_PROJECT_ID`, `POSTHOG_DELETION_API_KEY`,
+   `FRONTEND_URL` (once a client domain exists), `SANCTUM_STATEFUL_DOMAINS`
+   (once a client domain exists).
+5. Point DNS at Laravel Cloud once ready.
+6. Deploys run migrations + seeders automatically via Laravel Cloud's deploy
+   hooks (confirm this is configured in the Laravel Cloud dashboard — it's
+   not a file in this repo).
