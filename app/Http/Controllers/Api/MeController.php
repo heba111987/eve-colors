@@ -18,11 +18,15 @@ class MeController extends Controller
 
     public function updateConsent(Request $request): JsonResponse
     {
-        $data = $request->validate(['analyticsMarketing' => ['required', 'boolean']]);
+        $data = $request->validate([
+            'analytics' => ['required', 'boolean'],
+            'marketing' => ['required', 'boolean'],
+        ]);
         $user = $request->user();
 
         $user->consent_accepted_at ??= now();
-        $user->analytics_marketing_consent_at = $data['analyticsMarketing'] ? now() : null;
+        $user->analytics_consent_at = $data['analytics'] ? now() : null;
+        $user->marketing_consent_at = $data['marketing'] ? now() : null;
         $user->save();
 
         return response()->json(['ok' => true]);

@@ -15,34 +15,36 @@ it('returns 401 for GET /api/me with no session', function () {
 });
 
 it('returns the user with null consent fields for a fresh signup', function () {
-    $user = User::factory()->create(['consent_accepted_at' => null, 'analytics_marketing_consent_at' => null]);
+    $user = User::factory()->create(['consent_accepted_at' => null, 'analytics_consent_at' => null, 'marketing_consent_at' => null]);
     $this->actingAs($user);
 
     $response = $this->getJson('/api/me');
 
     $response->assertOk();
     $response->assertJson([
-        'user' => ['email' => $user->email, 'consentAcceptedAt' => null],
+        'user' => ['email' => $user->email, 'consentAcceptedAt' => null, 'analyticsConsentAt' => null, 'marketingConsentAt' => null],
     ]);
 });
 
-it('stamps consentAcceptedAt once and lets analytics consent be toggled afterward', function () {
+it('stamps consentAcceptedAt once and lets analytics and marketing consent be toggled independently afterward', function () {
     $user = User::factory()->create(['consent_accepted_at' => null]);
     $this->actingAs($user);
 
-    $first = $this->postJson('/api/me/consent', ['analyticsMarketing' => true]);
+    $first = $this->postJson('/api/me/consent', ['analytics' => true, 'marketing' => false]);
     $first->assertOk();
 
     $user->refresh();
     $firstAcceptedAt = $user->consent_accepted_at;
     expect($firstAcceptedAt)->not->toBeNull();
-    expect($user->analytics_marketing_consent_at)->not->toBeNull();
+    expect($user->analytics_consent_at)->not->toBeNull();
+    expect($user->marketing_consent_at)->toBeNull();
 
-    $this->postJson('/api/me/consent', ['analyticsMarketing' => false])->assertOk();
+    $this->postJson('/api/me/consent', ['analytics' => false, 'marketing' => true])->assertOk();
 
     $user->refresh();
     expect($user->consent_accepted_at->equalTo($firstAcceptedAt))->toBeTrue();
-    expect($user->analytics_marketing_consent_at)->toBeNull();
+    expect($user->analytics_consent_at)->toBeNull();
+    expect($user->marketing_consent_at)->not->toBeNull();
 });
 
 it('deletes the account, cascades entries and tokens, and reports the PostHog purge outcome', function () {
