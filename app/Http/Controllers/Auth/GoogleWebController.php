@@ -19,6 +19,10 @@ class GoogleWebController extends Controller
     {
         $googleUser = Socialite::driver('google')->user();
 
+        // Same check the mobile flow does in GoogleIdTokenVerifier — the
+        // upserter links accounts by email, so the email must be Google-verified.
+        abort_unless(($googleUser->getRaw()['email_verified'] ?? false) === true, 403, 'Google email not verified.');
+
         [$user, $isNewUser] = $upserter->upsert(
             googleId: $googleUser->getId(),
             email: $googleUser->getEmail(),
