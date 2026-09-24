@@ -6,7 +6,9 @@ export interface Me {
   email: string;
   displayName: string;
   consentAcceptedAt: string | null;
-  analyticsMarketingConsentAt: string | null;
+  analyticsConsentAt: string | null;
+  marketingConsentAt: string | null;
+  momentCount: number;
 }
 
 export function useMe() {

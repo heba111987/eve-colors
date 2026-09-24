@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppHeader } from '../../components/AppHeader';
 import { Button } from '../../components/Button';
 import { Toggle } from '../../components/Toggle';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -17,7 +18,8 @@ export default function Settings() {
 
   if (!me) return null;
 
-  const analyticsOn = !!me.analyticsMarketingConsentAt;
+  const analyticsOn = !!me.analyticsConsentAt;
+  const marketingOn = !!me.marketingConsentAt;
 
   // No explicit navigation on success here either, for the same reason
   // documented in Task 9's consent screen: both mutations clear the query
@@ -38,7 +40,9 @@ export default function Settings() {
   };
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <View style={styles.screen}>
+      <AppHeader />
+      <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.h2}>Account</Text>
       <View style={styles.profileRow}>
         <View style={styles.avatar}>
@@ -59,7 +63,18 @@ export default function Settings() {
         <Toggle
           value={analyticsOn}
           accessibilityLabel="Toggle analytics"
-          onValueChange={(v) => consentMutation.mutate(v)}
+          onValueChange={(v) => consentMutation.mutate({ analytics: v, marketing: marketingOn })}
+        />
+      </View>
+      <View style={styles.settingRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.settingTitle}>Email notes</Text>
+          <Text style={styles.settingSubtitle}>New questions and seasonal prompts.</Text>
+        </View>
+        <Toggle
+          value={marketingOn}
+          accessibilityLabel="Toggle email notes"
+          onValueChange={(v) => consentMutation.mutate({ analytics: analyticsOn, marketing: v })}
         />
       </View>
 
@@ -81,7 +96,8 @@ export default function Settings() {
         onConfirm={confirmDelete}
         onCancel={() => setConfirmOpen(false)}
       />
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

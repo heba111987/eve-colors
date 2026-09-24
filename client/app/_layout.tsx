@@ -22,13 +22,14 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const signedIn = !isError && !!me;
   const consented = signedIn && !!me.consentAcceptedAt;
 
-  if (!signedIn && pathname !== '/sign-in') {
-    return <Redirect href="/sign-in" />;
+  const preAuthRoutes = ['/intro', '/intro2', '/sign-in'];
+  if (!signedIn && !preAuthRoutes.includes(pathname)) {
+    return <Redirect href="/intro" />;
   }
   if (signedIn && !consented && pathname !== '/consent') {
     return <Redirect href="/consent" />;
   }
-  if (signedIn && consented && (pathname === '/sign-in' || pathname === '/consent' || pathname === '/')) {
+  if (signedIn && consented && [...preAuthRoutes, '/consent', '/'].includes(pathname)) {
     return <Redirect href="/today" />;
   }
 

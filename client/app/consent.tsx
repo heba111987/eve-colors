@@ -7,10 +7,11 @@ import { theme } from '../lib/theme';
 
 export default function Consent() {
   const [analytics, setAnalytics] = useState(false);
+  const [marketing, setMarketing] = useState(false);
   const mutation = useConsentMutation();
 
   const accept = () => {
-    mutation.mutate(analytics);
+    mutation.mutate({ analytics, marketing });
   };
 
   return (
@@ -27,17 +28,29 @@ export default function Consent() {
         </Text>
       </View>
 
-      <Pressable style={styles.optionRow} onPress={() => setAnalytics((v) => !v)}>
-        <View style={[styles.checkbox, analytics && styles.checkboxOn]}>
-          {analytics && <Check size={14} color="#ffffff" strokeWidth={3.2} />}
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.optionTitle}>Help improve Eve Colors</Text>
-          <Text style={styles.optionSubtitle}>Anonymous usage counts. Never your answers.</Text>
-        </View>
-      </Pressable>
+      <View style={{ gap: 10 }}>
+        <Pressable style={styles.optionRow} onPress={() => setAnalytics((v) => !v)}>
+          <View style={[styles.checkbox, analytics && styles.checkboxOn]}>
+            {analytics && <Check size={14} color="#ffffff" strokeWidth={3.2} />}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.optionTitle}>Help improve Eve Colors</Text>
+            <Text style={styles.optionSubtitle}>Anonymous usage counts. Never your answers.</Text>
+          </View>
+        </Pressable>
 
-      <Button title="I understand — let's start" onPress={accept} loading={mutation.isPending} style={{ marginTop: theme.space[6] }} />
+        <Pressable style={styles.optionRow} onPress={() => setMarketing((v) => !v)}>
+          <View style={[styles.checkbox, marketing && styles.checkboxOn]}>
+            {marketing && <Check size={14} color="#ffffff" strokeWidth={3.2} />}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.optionTitle}>Occasional notes by email</Text>
+            <Text style={styles.optionSubtitle}>New questions and seasonal prompts. Rare.</Text>
+          </View>
+        </Pressable>
+      </View>
+
+      <Button title="I understand" onPress={accept} loading={mutation.isPending} style={{ marginTop: theme.space[6] }} />
     </ScrollView>
   );
 }

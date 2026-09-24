@@ -3,6 +3,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useEntries } from '../../../lib/hooks/useEntries';
 import { iconSource } from '../../../lib/icons';
 import { theme } from '../../../lib/theme';
+import { AppHeader } from '../../../components/AppHeader';
 import { Button } from '../../../components/Button';
 
 const SCENE_HEIGHT = 220;
@@ -19,7 +20,9 @@ export default function Garden() {
   if (isLoading) return null;
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <View style={styles.screen}>
+      <AppHeader />
+      <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.h2}>My Garden</Text>
       <Text style={styles.subtitle}>{total} {total === 1 ? 'day' : 'days'}, all yours. Tap any flower to read it back.</Text>
 
@@ -58,7 +61,8 @@ export default function Garden() {
       )}
 
       <Text style={styles.footnote}>Your garden is private. Nothing here is shared.</Text>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
