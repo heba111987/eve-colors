@@ -84,7 +84,7 @@ function HomeStage({ onStart }: { onStart: () => void }) {
 function DoneStage({ entry }: { entry: NonNullable<ReturnType<typeof useToday>['data']> }) {
   return (
     <View style={[styles.screen, { alignItems: 'center', justifyContent: 'center', padding: theme.space[6] }]}>
-      <Image source={require('../../assets/images/lotus-peach.png')} style={{ width: 150, height: 150 }} resizeMode="contain" />
+      <Image source={iconSource(entry.color.icon)} style={{ width: 150, height: 150 }} resizeMode="contain" />
       <Text style={[styles.h2, { marginTop: theme.space[4], textAlign: 'center' }]}>Already planted today.</Text>
       <Text style={[styles.subtitle, { textAlign: 'center' }]}>
         {entry.color.name} — {entry.activity?.text ?? 'Today’s task'}. Come back tomorrow for the next one.
@@ -255,7 +255,7 @@ function BloomStage({ entry, onDone }: { entry: NonNullable<ReturnType<typeof us
 
   return (
     <View style={[styles.screen, { alignItems: 'center', justifyContent: 'center', padding: theme.space[6] }]}>
-      <Animated.Image source={require('../../assets/images/lotus-peach.png')} style={[{ width: 200, height: 200 }, animatedStyle]} resizeMode="contain" />
+      <Animated.Image source={iconSource(entry.color.icon)} style={[{ width: 200, height: 200 }, animatedStyle]} resizeMode="contain" />
       <Text style={[styles.h2, { marginTop: theme.space[4] }]}>Planted.</Text>
       <Text style={styles.subtitle}>Come back tomorrow for the next one.</Text>
       <Button title="See my garden" onPress={() => { onDone(); router.replace('/garden'); }} style={{ marginTop: theme.space[6], width: '100%' }} />
