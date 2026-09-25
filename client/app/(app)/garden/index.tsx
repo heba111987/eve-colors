@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { router } from 'expo-router';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FLOWER_SIZE, flowerPosition } from '../../../lib/garden';
 import { useEntries } from '../../../lib/hooks/useEntries';
+import { useGarden } from '../../../lib/hooks/useGarden';
 import { iconSource } from '../../../lib/icons';
 import { theme } from '../../../lib/theme';
 import { AppHeader } from '../../../components/AppHeader';
@@ -10,14 +13,13 @@ const SCENE_HEIGHT = 220;
 
 export default function Garden() {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useEntries();
+  const { data: flowers = [], isLoading: gardenLoading } = useGarden();
+  const [sceneWidth, setSceneWidth] = useState(0);
 
   const entries = (data?.pages ?? []).flatMap((p) => p.entries);
   const total = data?.pages[0]?.total ?? 0;
-  const planted = entries.filter(
-    (e): e is typeof e & { flowerX: number; flowerY: number } => e.flowerX !== null && e.flowerY !== null,
-  );
 
-  if (isLoading) return null;
+  if (isLoading || gardenLoading) return null;
 
   return (
     <View style={styles.screen}>
@@ -26,19 +28,19 @@ export default function Garden() {
       <Text style={styles.h2}>My Garden</Text>
       <Text style={styles.subtitle}>{total} {total === 1 ? 'day' : 'days'}, all yours. Tap any flower to read it back.</Text>
 
-      <View style={styles.scene}>
-        {planted.map((e) => (
-          <Pressable
-            key={e.id}
-            onPress={() => router.push(`/garden/${e.id}`)}
-            style={[
-              styles.flower,
-              { left: `${e.flowerX}%`, top: `${e.flowerY}%` },
-            ]}
-          >
-            <Image source={iconSource(e.color.icon)} style={styles.flowerIcon} resizeMode="contain" />
-          </Pressable>
-        ))}
+      <View style={styles.scene} onLayout={(ev) => setSceneWidth(ev.nativeEvent.layout.width)}>
+        {sceneWidth > 0 && flowers.map((f) => {
+          const { x, y } = flowerPosition(f.flowerX, f.flowerY, f.inCenter, sceneWidth, SCENE_HEIGHT);
+          return (
+            <Pressable
+              key={f.id}
+              onPress={() => router.push(`/garden/${f.id}`)}
+              style={[styles.flower, { left: x, top: y }]}
+            >
+              <Image source={iconSource(f.icon)} style={styles.flowerIcon} resizeMode="contain" />
+            </Pressable>
+          );
+        })}
       </View>
 
       <View style={{ gap: 10, marginTop: theme.space[6] }}>
@@ -72,7 +74,7 @@ const styles = StyleSheet.create({
   h2: { fontFamily: theme.font.heading, fontSize: theme.fontSize.h2, color: theme.colors.text, marginBottom: theme.space[1] },
   subtitle: { fontFamily: theme.font.body, fontSize: 14, color: theme.colors.neutral700, marginBottom: theme.space[4] },
   scene: { height: SCENE_HEIGHT, borderRadius: theme.radius.lg, backgroundColor: theme.colors.accent2_100, position: 'relative', overflow: 'hidden' },
-  flower: { position: 'absolute', width: 40, height: 40, marginLeft: -20, marginTop: -20 },
+  flower: { position: 'absolute', width: FLOWER_SIZE, height: FLOWER_SIZE, marginLeft: -FLOWER_SIZE / 2, marginTop: -FLOWER_SIZE / 2 },
   flowerIcon: { width: '100%', height: '100%' },
   entryRow: { flexDirection: 'row', alignItems: 'center', gap: theme.space[3], backgroundColor: '#ffffff', borderWidth: 1, borderColor: theme.colors.neutral200, borderRadius: 22, padding: 10 },
   entryIcon: { width: 48, height: 48 },

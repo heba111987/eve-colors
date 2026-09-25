@@ -13,6 +13,9 @@ use Illuminate\Http\Request;
 
 class EntryController extends Controller
 {
+    // The garden clusters a user's first flowers in a centered circle.
+    private const CENTER_FLOWER_COUNT = 20;
+
     public function today(Request $request): JsonResponse
     {
         $entry = UserResponse::where('user_id', $request->user()->id)
@@ -134,6 +137,29 @@ class EntryController extends Controller
             'entries' => UserResponseResource::collection($page->values()),
             'nextCursor' => $hasMore ? (string) $page->last()->id : null,
             'total' => $total,
+        ]);
+    }
+
+    /**
+     * Every planted flower, oldest first, for drawing the whole garden at
+     * once — unlike index(), which pages through full entries.
+     */
+    public function garden(Request $request): JsonResponse
+    {
+        $flowers = UserResponse::where('user_id', $request->user()->id)
+            ->whereNotNull('flower_x')
+            ->with('color:id,icon')
+            ->orderBy('id')
+            ->get(['id', 'color_id', 'flower_x', 'flower_y']);
+
+        return response()->json([
+            'flowers' => $flowers->values()->map(fn (UserResponse $flower, int $i) => [
+                'id' => $flower->id,
+                'icon' => $flower->color->icon,
+                'flowerX' => $flower->flower_x,
+                'flowerY' => $flower->flower_y,
+                'inCenter' => $i < self::CENTER_FLOWER_COUNT,
+            ]),
         ]);
     }
 

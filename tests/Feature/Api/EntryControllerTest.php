@@ -277,3 +277,29 @@ it('includes the activity note in the entry response once an activity is assigne
     $response->assertOk();
     $response->assertJson(['entry' => ['activity' => ['note' => 'Ten minutes, no phone.']]]);
 });
+
+it('returns every planted flower for the garden, flagging the first 20 as in the center', function () {
+    $user = actingUserWithConsent();
+    $otherUser = User::factory()->create();
+
+    // Unplanted entries and other users' flowers must not appear or count.
+    seedManualEntry($user, now()->subDays(30)->toDateString());
+    seedManualEntry($otherUser, now()->subDays(29)->toDateString(), [50.0, 50.0]);
+    $planted = collect(range(25, 1))->map(
+        fn ($daysAgo) => seedManualEntry($user, now()->subDays($daysAgo)->toDateString(), [10.0, 20.0])
+    );
+
+    $response = $this->getJson('/api/garden');
+
+    $response->assertOk();
+    $flowers = collect($response->json('flowers'));
+    expect($flowers->pluck('id')->all())->toBe($planted->pluck('id')->all());
+    expect($flowers->pluck('inCenter')->all())->toBe([...array_fill(0, 20, true), ...array_fill(0, 5, false)]);
+    expect($flowers->first())->toMatchArray(['flowerX' => 10.0, 'flowerY' => 20.0, 'icon' => null]);
+});
+
+it('requires consent to view the garden', function () {
+    $this->actingAs(User::factory()->create());
+
+    $this->getJson('/api/garden')->assertForbidden();
+});

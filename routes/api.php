@@ -24,5 +24,6 @@ Route::middleware(['auth:sanctum', 'consent'])->group(function () {
     Route::patch('/entries/{id}', [EntryController::class, 'update']);
     Route::post('/entries/{id}/reroll-activity', [EntryController::class, 'rerollActivity']);
     Route::get('/entries', [EntryController::class, 'index']);
+    Route::get('/garden', [EntryController::class, 'garden']);
     Route::delete('/entries/{id}', [EntryController::class, 'destroy']);
 });
