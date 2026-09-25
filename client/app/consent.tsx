@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 import { Button } from '../components/Button';
@@ -50,6 +51,12 @@ export default function Consent() {
         </Pressable>
       </View>
 
+      <Text style={styles.legal}>
+        By tapping “I understand”, you agree to our <Link href="/terms" style={styles.legalLink}>Terms of Service</Link> and
+        confirm you have read our <Link href="/privacy" style={styles.legalLink}>Privacy Policy</Link>, including how we store
+        your reflections.
+      </Text>
+
       <Button title="I understand" onPress={accept} loading={mutation.isPending} style={{ marginTop: theme.space[6] }} />
     </ScrollView>
   );
@@ -63,6 +70,8 @@ const styles = StyleSheet.create({
   noticeCard: { backgroundColor: theme.colors.accent100, borderRadius: theme.radius.lg, padding: theme.space[4] },
   noticeTitle: { fontFamily: theme.font.heading, fontSize: 15, marginBottom: 6, color: theme.colors.text },
   noticeBody: { fontFamily: theme.font.body, fontSize: 13.5, lineHeight: 21, color: theme.colors.neutral700 },
+  legal: { fontFamily: theme.font.body, fontSize: 12.5, lineHeight: 19, color: theme.colors.neutral600, marginTop: theme.space[2] },
+  legalLink: { fontFamily: theme.font.bodySemibold, color: theme.colors.accent700, textDecorationLine: 'underline' },
   optionRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', backgroundColor: '#ffffff', borderWidth: 1, borderColor: theme.colors.neutral200, borderRadius: theme.radius.md, padding: theme.space[3] },
   checkbox: { width: 22, height: 22, borderRadius: 7, borderWidth: 1.5, borderColor: theme.colors.neutral400, alignItems: 'center', justifyContent: 'center' },
   checkboxOn: { backgroundColor: theme.colors.accent2_500, borderColor: theme.colors.accent2_500 },

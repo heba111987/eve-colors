@@ -1,6 +1,8 @@
+import { Link } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../components/Button';
+import { LEGAL_ENTITY } from '../components/LegalPage';
 import { API_URL } from '../lib/config';
 import { theme } from '../lib/theme';
 
@@ -36,6 +38,11 @@ export default function SignIn() {
         <View>
           <Button title="Grow!" variant="secondary" onPress={signIn} icon={<GoogleIcon />} />
           <Text style={styles.disclaimer}>Private by design • No streaks • Your reflections stay yours</Text>
+          <Text style={styles.legal}>
+            By continuing, you agree to our <Link href="/terms" style={styles.legalLink}>Terms of Service</Link> and{' '}
+            <Link href="/privacy" style={styles.legalLink}>Privacy Policy</Link>.
+          </Text>
+          <Text style={styles.copyright}>© {new Date().getFullYear()} {LEGAL_ENTITY}</Text>
         </View>
       </View>
     </View>
@@ -49,5 +56,8 @@ const styles = StyleSheet.create({
   kicker: { fontFamily: theme.font.bodyBold, fontSize: 12, letterSpacing: 2, textTransform: 'uppercase', color: theme.colors.accent700, marginBottom: theme.space[3] },
   title: { fontFamily: theme.font.heading, fontSize: theme.fontSize.h1, color: theme.colors.text, marginBottom: theme.space[3] },
   subtitle: { fontFamily: theme.font.body, fontSize: 17, color: theme.colors.neutral700, maxWidth: 260 },
+  legal: { fontFamily: theme.font.body, fontSize: 12, lineHeight: 18, color: theme.colors.neutral600, maxWidth: 320, marginTop: theme.space[3] },
+  legalLink: { fontFamily: theme.font.bodySemibold, color: theme.colors.accent700, textDecorationLine: 'underline' },
+  copyright: { fontFamily: theme.font.body, fontSize: 11, color: theme.colors.neutral500, marginTop: theme.space[3] },
   disclaimer: { fontFamily: theme.font.body, fontSize: 12, lineHeight: 18, color: theme.colors.neutral600, maxWidth: 320, marginTop: theme.space[4] },
 });

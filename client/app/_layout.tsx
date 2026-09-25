@@ -7,9 +7,18 @@ import { queryClient } from '../lib/queryClient';
 import { useMe } from '../lib/hooks/useMe';
 import { theme } from '../lib/theme';
 
+const publicRoutes = ['/privacy', '/terms'];
+
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { data: me, isLoading, isError } = useMe();
   const pathname = usePathname();
+
+  // Legal pages are public to everyone, signed in or not, and must not wait
+  // on /me — static rendering would otherwise bake in the loading spinner
+  // instead of the policy text.
+  if (publicRoutes.includes(pathname)) {
+    return <>{children}</>;
+  }
 
   if (isLoading) {
     return (
@@ -37,6 +46,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  const pathname = usePathname();
   const [fontsLoaded] = useFonts({
     Caprasimo_400Regular,
     Figtree_400Regular,
@@ -44,7 +54,9 @@ export default function RootLayout() {
     Figtree_700Bold,
   });
 
-  if (!fontsLoaded) {
+  // Public pages render straight away (text swaps to the custom fonts once
+  // they load) so their content is in the statically rendered HTML.
+  if (!fontsLoaded && !publicRoutes.includes(pathname)) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.bg }}>
         <ActivityIndicator color={theme.colors.accent500} />

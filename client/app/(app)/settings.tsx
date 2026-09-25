@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppHeader } from '../../components/AppHeader';
 import { Button } from '../../components/Button';
@@ -86,6 +87,11 @@ export default function Settings() {
         Eve Colors is a reflection tool, not medical advice. In the US you can call or text 988 any time to reach
         the Suicide &amp; Crisis Lifeline.
       </Text>
+      <View style={styles.legalLinks}>
+        <Link href="/privacy" style={styles.legalLink}>Privacy Policy</Link>
+        <Text style={styles.footnoteDot}>·</Text>
+        <Link href="/terms" style={styles.legalLink}>Terms of Service</Link>
+      </View>
 
       <ConfirmDialog
         visible={confirmOpen}
@@ -114,5 +120,8 @@ const styles = StyleSheet.create({
   settingRow: { flexDirection: 'row', alignItems: 'center', gap: theme.space[3], backgroundColor: '#ffffff', borderWidth: 1, borderColor: theme.colors.neutral200, borderRadius: theme.radius.md, padding: theme.space[3] },
   settingTitle: { fontFamily: theme.font.bodySemibold, fontSize: 14.5, color: theme.colors.text },
   settingSubtitle: { fontFamily: theme.font.body, fontSize: 12.5, color: theme.colors.neutral600 },
+  legalLinks: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: theme.space[3] },
+  legalLink: { fontFamily: theme.font.bodySemibold, fontSize: 12, color: theme.colors.accent700, textDecorationLine: 'underline' },
+  footnoteDot: { color: theme.colors.neutral500 },
   footnote: { fontFamily: theme.font.body, fontSize: 12, lineHeight: 19, color: theme.colors.neutral600, marginTop: theme.space[6] },
 });
