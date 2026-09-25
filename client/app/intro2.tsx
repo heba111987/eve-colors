@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../components/Button';
+import { LegalLinks } from '../components/LegalLinks';
 import { theme } from '../lib/theme';
 
 const SCENE = [
@@ -53,6 +54,7 @@ export default function Intro2() {
           <View style={styles.dot} />
         </View>
         <Button title="Set" onPress={() => router.push('/sign-in')} />
+        <LegalLinks />
       </View>
     </View>
   );

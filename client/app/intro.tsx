@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../components/Button';
+import { LegalLinks } from '../components/LegalLinks';
 import { theme } from '../lib/theme';
 
 const STEPS = [
@@ -41,6 +42,7 @@ export default function Intro() {
           <View style={styles.dot} />
         </View>
         <Button title="Ready" onPress={() => router.push('/intro2')} />
+        <LegalLinks />
       </View>
     </View>
   );
